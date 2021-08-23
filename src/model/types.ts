@@ -59,6 +59,15 @@ export interface IResource {
     yes?: boolean;
     ignoreCertError?: boolean;
 }
+export interface ResourceSettings {
+    path: string,
+    statInfo?: any,
+    buffer: any,
+    string: string,
+    createStream: any,
+    stream: any,
+    project: any
+}
 
 export interface Resource {
     getPath(): string;
@@ -73,7 +82,10 @@ export interface MiddlewareParameters<T> {
 }
 
 export interface Workspace {
-    byGlob: (glob: string) => Promise<Resource[]>;
+    byGlob: (glob: string | string[]) => Promise<Resource[]>;
+    write: (resource: ResourceSettings
+        , options?: {readOnly?: boolean, drain?: boolean}
+        ) => Promise<Resource[]>;
 }
 
 export interface TaskParameters<T> {

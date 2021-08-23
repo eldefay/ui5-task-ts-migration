@@ -2,7 +2,7 @@
 import {createPrinter, createProgram, NewLineKind, SyntaxKind, SourceFile, EmitHint, CallExpression, FunctionExpression, ObjectLiteralExpression, VariableDeclaration, StringLiteral, PropertyAccessExpression, Identifier, PropertyAssignment, ExpressionStatement, Expression, BinaryExpression, HeritageClause, ClassElement, Statement, TypeParameterDeclaration, ScriptTarget, ScriptKind, createSourceFile, ModuleKind} from 'typescript';
 import * as jsonata from "jsonata";
 
-import { Project, ts } from "ts-morph";
+import { LeftHandSideExpression, Project, ts } from "ts-morph";
 
 export type ClassInfo = {
     jsDocs: any,
@@ -16,16 +16,22 @@ export type ClassInfo = {
 
 export class ASTService {
 	
-    static getAST(jsFilePath: string) : SourceFile {
-        let program = ts.createProgram([jsFilePath], {
+    static getAST(jsFilePath: string, content?: string) : SourceFile {
+        return content != null ? ts.createSourceFile(
+            jsFilePath,                  // filePath
+            content, // fileText 
+            ts.ScriptTarget.ES2020,     // scriptTarget
+            true                        // setParentNodes -- sets the `parent` property
+        ) : createProgram([jsFilePath], {
             allowJs: true,
             module: ModuleKind.ES2020
-        });
-        return program.getSourceFile(jsFilePath) as SourceFile;
+        }).getSourceFile(jsFilePath) as SourceFile;
     }
 
     static getUI5Define(sourceFileAst: SourceFile) : CallExpression {
-        // searchin only for one sap.ui.define
+        // find single sap.ui.define
+        // TODO check whether multiple definition are allowed in a file
+        //      check whether define call can be embedded
         return jsonata(`statements[
             expression.expression.expression.expression.escapedText='sap' and
             expression.expression.expression.name.escapedText='ui' and
@@ -34,21 +40,28 @@ export class ASTService {
  
     static getUI5Definitions(ui5DefineAst: CallExpression) {
         let extendAsts = jsonata("arguments[1].body.statements[declarationList.declarations[0].initializer.expression.name.text='extend']").evaluate(ui5DefineAst),
-            extendDeclarations = extendAsts.length > 1 ? extendAsts : [extendAsts],
-            classInfos = extendDeclarations.map(this.getUI5ClassInfo) as ClassInfo[],
-            otherDeclerations = (ui5DefineAst.arguments[1] as FunctionExpression).body.statements.filter(n => n != extendDeclarations[0]);
+            extendDeclarations : Statement[] = extendAsts ? (extendAsts.length > 1 ? extendAsts : [extendAsts]) : null,
+            classInfos = extendDeclarations?.map(this.getUI5ClassInfo) as ClassInfo[] || [],
+            otherExpressions = (ui5DefineAst.arguments[1] as FunctionExpression).body.statements.filter(n => !extendDeclarations?.includes(n))
             
-            classInfos.forEach(classInfo => {
-                let classMethods = jsonata("$[expression.left.expression.name.text='prototype' and expression.left.expression.expression.text='" + classInfo.className + "'].expression").evaluate(otherDeclerations)
-                .map((d:any) => [d.left.name.text, d.right]) as [string, FunctionExpression][];
+            classInfos?.forEach(classInfo => {
+                let classMethods = jsonata("$[expression.left.expression.name.text='prototype' and expression.left.expression.expression.text='" + classInfo.className + "'].expression")
+                    .evaluate(otherExpressions)?.map((d:any) => [d.left.name.text, d.right]) as [string, FunctionExpression][];
+
+                otherExpressions = otherExpressions?.filter(d => !classMethods?.map(([_, statement]) => statement as any)?.includes(((d as ExpressionStatement)?.expression as BinaryExpression)?.right));
                 
                 // TODO cleanup super calls, replace .. prototype...apply(this, arguments) => super arguments
                 classInfo.methods = classMethods;
             });
 
+            // Opa5.createPageObjects
+            // TODO: check whether conversion needed for tests & how to run them afterwards
+            let createPageObjectsAsts = jsonata("arguments[1].body.statements[expression.expression.expression.text='Opa5']").evaluate(ui5DefineAst);
+
         return {
             imports: jsonata("$zip(arguments[1].[parameters.name.text], arguments[0].[elements.text])").evaluate(ui5DefineAst) as [[string,string]],
-            classes: classInfos
+            classes: classInfos,
+            otherExpressions: otherExpressions
         }
     }
 
@@ -72,7 +85,7 @@ export class ASTService {
         }
     }
 
-    static getClassDecleration(classInfo: ClassInfo) {
+    static getClassDeclaration(classInfo: ClassInfo) {
         return ts.factory.createClassDeclaration(
             undefined, // [] as ts.Decorator[],
             undefined, // [] as ts.Modifier[],
@@ -95,7 +108,7 @@ export class ASTService {
                 ) :
                 ts.factory.createMethodDeclaration(
                     undefined,
-                    ts.factory.createModifiersFromModifierFlags(name.substr(0,1) == "_" ? ts.ModifierFlags.Public : ts.ModifierFlags.Private),
+                    ts.factory.createModifiersFromModifierFlags(name.substr(0,1) != "_" ? ts.ModifierFlags.Public : ts.ModifierFlags.Private),
                     undefined,
                     name,
                     undefined,
@@ -107,34 +120,32 @@ export class ASTService {
             ));
     }
     
-    static migrateUI5SourceFileFromES5(path: string) : any {
+    static migrateUI5SourceFileFromES5(path: string, content?: string) : string {
 
-        let lastPathSepearatorIndex = path.lastIndexOf("/"),
-            fileName    = path.substring(lastPathSepearatorIndex + 1, path.lastIndexOf(".")),
-            dirPath     = path.substring(0, lastPathSepearatorIndex + 1 ), //__dirname + '/resources/',
+        let lastPathSeparatorIndex = path.lastIndexOf("/"),
+            fileName    = path.substring(lastPathSeparatorIndex + 1, path.lastIndexOf(".")),
+            dirPath     = path.substring(0, lastPathSeparatorIndex + 1 ), //__dirname + '/resources/',
             outputFileName = "XX" + fileName,
             outputFilePath = dirPath + outputFileName + ".ts",
-            sourceFile = this.getAST(path),
-            ui5DefineStatement = this.getUI5Define(sourceFile),
-            info = this.getUI5Definitions(ui5DefineStatement),
-            imports = info.imports,
-            className = info.classes[0].className,
-            nameSpace = info.classes[0].nameSpace,
-            superClassName = info.classes[0].superClassName,
-            ui5ClassSettingsAst = info.classes[0].ui5ClassSettings;
-            // tsPrinter = createPrinter({ newLine: NewLineKind.LineFeed }),
-            // x = tsPrinter.printNode(EmitHint.Unspecified, extendCall.arguments[1], sourceFile);
-        
-        // using typescript printer
-        let importDeclerations = imports.map(([name, path]) => ts.factory.createImportDeclaration(
+            sourceFile = this.getAST(path, content),
+            ui5DefineStatement = this.getUI5Define(sourceFile);
+
+        var declarationsBlock;
+        if( !ui5DefineStatement ) {
+            declarationsBlock = ts.factory.createBlock(sourceFile.statements);
+        } else {
+            let info = this.getUI5Definitions(ui5DefineStatement),
+                imports = info.imports,
+            importDeclarations = imports.map(([name, path]) => ts.factory.createImportDeclaration(
                     undefined, //[] as ts.Decorator[],
                     undefined, // [] as ts.Modifier[],
                     ts.factory.createImportClause(false , ts.factory.createIdentifier(name), undefined),
                     ts.factory.createStringLiteral(path))
                 ),
-            classDeclerations = info.classes.map(classInfo => this.getClassDecleration(classInfo)),
-            declerationsBlock = ts.factory.createBlock(([] as Statement[]).concat(importDeclerations).concat(classDeclerations) as Statement[]),// [].concat([classDecleration]).concat(importDeclerations) as ts.NodeArray<ts.Node>,
-            printer = createPrinter({ newLine: NewLineKind.LineFeed }),
+            classDeclarations = info.classes.map(classInfo => this.getClassDeclaration(classInfo));
+            declarationsBlock = ts.factory.createBlock(([] as Statement[]).concat(importDeclarations).concat(classDeclarations).concat(info.otherExpressions || []) as Statement[]);
+        }
+        let printer = createPrinter({ newLine: NewLineKind.LineFeed }),
             resultFile = createSourceFile(
                 outputFilePath,
                 "",
@@ -143,27 +154,10 @@ export class ASTService {
                 ScriptKind.TS
             );
 
-        let content = declerationsBlock.statements.flatMap(s => s).map(s =>
+        let newContent = declarationsBlock.statements.flatMap(s => s).map(s =>
             printer.printNode(EmitHint.Unspecified, s, resultFile)).join("\n");
-        console.log(content);
         
-    
-
-        // ts-morph for creating new files
-        let project = new Project({
-                compilerOptions : {
-                    allowJs: true,
-                }
-            }),
-            tsSourceFile = project.createSourceFile(dirPath + outputFileName + ".ts", {
-                statements: resultFile.getFullText(),
-                // etc...
-            }, { overwrite: true });
-        
-        // tsSourceFile.save();
-        // jsSourceFile.save();
-        
-        return content;
+        return newContent;
     }
  
 }

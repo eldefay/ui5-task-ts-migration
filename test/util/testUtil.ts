@@ -44,6 +44,28 @@ export default class TestUtil {
     }
 
 
+    static async getLocalWorkspace(basePath: string) {
+        const project = await normalizer.generateProjectTree({ cwd: basePath });
+        const resourceCollections = resourceFactory.createCollectionsForTree(project, {});
+        const workspace = resourceFactory.createWorkspace({
+            virBasePath: "/",
+            reader: resourceCollections.source,
+            name: "projectName1"
+        });
+        const buildContext = new BuildContext({ rootProject: project });
+        const taskUtil = new TaskUtil({
+            projectBuildContext: buildContext.createProjectContext({
+                project, // TODO 2.0: Add project facade object/instance here
+                resources: {
+                    workspace,
+                    dependencies: resourceCollections.dependencies
+                }
+            })
+        });
+        return { workspace, taskUtil };
+    }
+
+
 
 
     static getStdOut(stdout: any, exitCode: number = 0, stderr: string = "") {

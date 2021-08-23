@@ -19,23 +19,6 @@ export default class ResourceUtil {
         return path.join(...newPath);
     }
 
-
-    static writeTemp(configuration: IConfiguration, files: Map<string, string>): Promise<void[]> {
-        // const distTempFolder = this.getFiles(configuration);
-        // rimraf.sync(distTempFolder);
-        const fsTarget = resourceFactory.createAdapter({
-            fsBasePath: "",
-            virBasePath: "/"
-        });
-        const promises: Promise<void>[] = [];
-        files.forEach((string, filename) => {
-            const resource = resourceFactory.createResource({ path: "/" + filename, string });
-            promises.push(fsTarget.write(resource));
-        });
-        return Promise.all(promises);
-    }
-
-
     static async getFiles(path: string): Promise<Map<string, string>> {
         const baseAppTempFolder = path;
         const files = new Map<string, string>();
