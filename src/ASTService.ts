@@ -45,7 +45,7 @@ export class ASTService {
             otherExpressions = (ui5DefineAst.arguments[1] as FunctionExpression).body.statements.filter(n => !extendDeclarations?.includes(n))
             
             classInfos?.forEach(classInfo => {
-                let classMethods = jsonata("$[expression.left.expression.name.text='prototype' and expression.left.expression.expression.text='" + classInfo.className + "'].expression")
+                let classMethods = jsonata("$[expression.left.expression.name.text='prototype' and expression.left.expression.expression.text='" + classInfo.className + "'].expression[]")
                     .evaluate(otherExpressions)?.map((d:any) => [d.left.name.text, d.right]) as [string, FunctionExpression][];
 
                 otherExpressions = otherExpressions?.filter(d => !classMethods?.map(([_, statement]) => statement as any)?.includes(((d as ExpressionStatement)?.expression as BinaryExpression)?.right));
@@ -73,7 +73,7 @@ export class ASTService {
             classNameInSpace = (extendCall.arguments[0] as StringLiteral).text,
             nameSpace = classNameInSpace.substr(0, classNameInSpace.lastIndexOf("." + className )),
             superClassName = ((extendCall.expression as PropertyAccessExpression).expression as Identifier).text,
-            ui5ClassSettings = (extendCall.arguments[1] as ObjectLiteralExpression).properties.map(p =>
+            ui5ClassSettings = (extendCall.arguments[1] as ObjectLiteralExpression)?.properties?.map(p =>
                 [(p.name as Identifier).text, (p as PropertyAssignment).initializer]) as [[ string , Expression ]];
             
         return {

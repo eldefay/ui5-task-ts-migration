@@ -1,6 +1,6 @@
 {
     "name": "ui5-task-ts-migration",
-    "version": "0.1.2",
+    "version": "0.1.5",
     "description": "Custom task for ui5-builder which allows migrating UI5 AMD Sources to Typescript",
     "main": "dist/index.js",
     "scripts": {
@@ -8,10 +8,11 @@
         "dev": "mocha --no-timeouts -r ts-node/register 'test/**/*.spec.ts'",
         "coverage": "nyc node_modules/.bin/mocha -r ts-node/register 'test/**/*.spec.ts'",
         "coverage-verbose": "nyc --reporter=html --reporter=text node_modules/.bin/mocha -r ts-node/register 'test/**/*.spec.ts'",
-        "build": "tsc -p .",
-        "postinstall": "npm run build"
+        "build": "tsc -p ."
     },
-    "files": ["dist/**/*"],
+    "files": [
+        "dist/**/*"
+    ],
     "repository": {
         "type": "git",
         "url": "https://github.com/eldefay/ui5-task-ts-migration.git"
@@ -40,7 +41,8 @@
         "node-fetch": "^2.6.1",
         "rimraf": "^3.0.2",
         "temp-dir": "^2.0.0",
-        "ts-morph": "^11.0.3"
+        "ts-morph": "^11.0.3",
+        "typescript": "^4.3.5"
     },
     "devDependencies": {
         "@istanbuljs/nyc-config-typescript": "^1.0.1",
@@ -57,8 +59,7 @@
         "nyc": "^15.1.0",
         "sinon": "^11.1.0",
         "source-map-support": "^0.5.19",
-        "ts-node": "^10.0.0",
-        "typescript": "^4.2.4"
+        "ts-node": "^10.0.0"
     },
     "nyc": {
         "reporter": [
