@@ -8,7 +8,8 @@ import { IProjectOptions } from "../src/model/types";
 import { SinonSandbox } from "sinon";
 import TestUtil from "./util/testUtil";
 
-const index = require("../src/index");
+import { migrate } from "../src/index";
+
 const { expect } = chai;
 const OPTIONS: IProjectOptions = {
     projectNamespace: "ns",
@@ -40,19 +41,9 @@ describe("Index", () => {
 
     xit("should run task ", async function() {
         this.timeout(1000000);
-        await runMigrationTask(OPTIONS);
+        await migrate(["/resorces/testProject"]);
+        console.log(arguments);
         expect(1).lessThanOrEqual(1);
     });
 
 });
-
-const runMigrationTask = async (options: IProjectOptions) => {
-    const projectPath = "/resorces/testProject";
-    const { workspace, taskUtil } = await TestUtil.getLocalWorkspace(projectPath);
-    const workspaceSpied = sinon.spy(workspace, "write");
-    await index({ workspace, options: options, taskUtil });
-    const resourcePaths = workspaceSpied.getCalls().map(call => (call.args[0] as any).getPath());
-    expect(resourcePaths).to.have.members([
-        "/resources/manifest.json"
-    ]);
-}

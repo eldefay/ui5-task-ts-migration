@@ -9,7 +9,7 @@ export type ClassInfo = {
     className : string,
     nameSpace : string,
     superClassName : string,
-    ui5ClassSettings : [[ string , Expression ]],
+    ui5ClassSettings : [string, Expression][],
     constructorAst?: any,
     methods?: [string, FunctionExpression][]
 };
@@ -39,7 +39,7 @@ export class ASTService {
     }
  
     static getUI5Definitions(ui5DefineAst: CallExpression) {
-        let extendAsts = jsonata("arguments[1].body.statements[declarationList.declarations[0].initializer.expression.name.text='extend']").evaluate(ui5DefineAst),
+        let extendAsts = jsonata("arguments[1].body.statements[declarationList.declarations[0].initializer.expression.name.text='extend' or expression.expression.name.text='extend']").evaluate(ui5DefineAst),
             extendDeclarations : Statement[] = extendAsts ? (extendAsts.length > 1 ? extendAsts : [extendAsts]) : null,
             classInfos = extendDeclarations?.map(this.getUI5ClassInfo) as ClassInfo[] || [],
             otherExpressions = (ui5DefineAst.arguments[1] as FunctionExpression).body.statements.filter(n => !extendDeclarations?.includes(n))
@@ -51,7 +51,7 @@ export class ASTService {
                 otherExpressions = otherExpressions?.filter(d => !classMethods?.map(([_, statement]) => statement as any)?.includes(((d as ExpressionStatement)?.expression as BinaryExpression)?.right));
                 
                 // TODO cleanup super calls, replace .. prototype...apply(this, arguments) => super arguments
-                classInfo.methods = classMethods;
+                classInfo.methods = classInfo.methods?.concat(classMethods || []);
             });
 
             // Opa5.createPageObjects
@@ -67,21 +67,23 @@ export class ASTService {
 
     static getUI5ClassInfo(extendAst: any) : ClassInfo {
         let jsDocs = extendAst.jsDoc,
-            classDeclaration = extendAst.declarationList.declarations[0] as VariableDeclaration,
-            className = (classDeclaration.name as Identifier).text,
-            extendCall = classDeclaration.initializer as CallExpression,
+            classDeclaration = extendAst.declarationList?.declarations[0] as VariableDeclaration,
+            extendCall = (classDeclaration?.initializer || extendAst.expression) as CallExpression,
             classNameInSpace = (extendCall.arguments[0] as StringLiteral).text,
-            nameSpace = classNameInSpace.substr(0, classNameInSpace.lastIndexOf("." + className )),
+            className = classNameInSpace.substr(classNameInSpace.lastIndexOf(".") + 1 ),
+            nameSpace = classNameInSpace.substr(0, classNameInSpace.lastIndexOf(".")),
             superClassName = ((extendCall.expression as PropertyAccessExpression).expression as Identifier).text,
-            ui5ClassSettings = (extendCall.arguments[1] as ObjectLiteralExpression)?.properties?.map(p =>
-                [(p.name as Identifier).text, (p as PropertyAssignment).initializer]) as [[ string , Expression ]];
-            
+            extendSettings = (extendCall.arguments[1] as ObjectLiteralExpression)?.properties?.map(p =>
+                [(p.name as Identifier).text, (p as PropertyAssignment).initializer]) as [string, Expression][],
+            ui5ClassSettings = extendSettings.filter(([_name, exp]) => exp.kind != SyntaxKind.FunctionExpression),
+            methods = extendSettings.filter(([_name, exp]) => exp.kind == SyntaxKind.FunctionExpression) as [string, FunctionExpression][];
         return {
             jsDocs: jsDocs,
             className : className,
             nameSpace : nameSpace,
             superClassName : superClassName,
-            ui5ClassSettings : ui5ClassSettings
+            ui5ClassSettings : ui5ClassSettings,
+            methods: methods
         }
     }
 

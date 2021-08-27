@@ -1,7 +1,7 @@
 {
     "name": "ui5-task-ts-migration",
-    "version": "0.1.5",
-    "description": "Custom task for ui5-builder which allows migrating UI5 AMD Sources to Typescript",
+    "version": "0.1.6",
+    "description": "Migration task for ui5 projects which allows migrating UI5 AMD Sources to Typescript",
     "main": "dist/index.js",
     "scripts": {
         "test": "npm run build && npm run coverage",
@@ -21,7 +21,6 @@
         "migration",
         "typescript",
         "ui5",
-        "builder",
         "tools",
         "business",
         "application",
@@ -36,6 +35,7 @@
         "adm-zip": "^0.5.5",
         "amdextract": "^3.0.0",
         "builtin-modules": "^3.2.0",
+        "glob": "^7.1.7",
         "js-yaml": "^4.1.0",
         "jsonata": "^1.7.0",
         "node-fetch": "^2.6.1",
