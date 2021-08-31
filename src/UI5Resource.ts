@@ -8,7 +8,7 @@ export type ClassInfo = {
     className : string,
     nameSpace : string,
     superClassName : string,
-    ui5ClassSettings : [string, Expression][],
+    ui5ClassSettings : {[key: string]: Expression},
     constructorAst?: any,
     methods?: [string, FunctionExpression][]
 };
@@ -18,7 +18,7 @@ export class UI5Resource {
     importDeclarations: ImportDeclaration[] = [];
     info?: { imports: [[string, string]]; classes: ClassInfo[]; otherExpressions: Statement[]; };
     classDeclarations: any;
-    static ui5Types: SourceFile;
+    static ui5Types: { [key: string]: SourceFile } = {};
     constructor(public path: string, public projectPath: string) {
         this.sourceFile = ASTService.getAST(this.path);
     }
@@ -65,12 +65,12 @@ export class UI5Resource {
             classDeclaration = extendAst.declarationList?.declarations[0] as VariableDeclaration,
             extendCall = (classDeclaration?.initializer || extendAst.expression) as CallExpression,
             classNameInSpace = (extendCall.arguments[0] as StringLiteral).text,
-            className = classNameInSpace.substr(classNameInSpace.lastIndexOf(".") + 1 ),
+            className = (classDeclaration?.name as any)?.text || classNameInSpace.substr(classNameInSpace.lastIndexOf(".") + 1 ),
             nameSpace = classNameInSpace.substr(0, classNameInSpace.lastIndexOf(".")),
             superClassName = ((extendCall.expression as PropertyAccessExpression).expression as Identifier).text,
             extendSettings = (extendCall.arguments[1] as ObjectLiteralExpression)?.properties?.map(p =>
                 [(p.name as Identifier).text, (p as PropertyAssignment).initializer || p]) as [string, Expression][],
-            ui5ClassSettings = extendSettings?.filter(([_name, exp]) => exp.kind != SyntaxKind.FunctionExpression),
+            ui5ClassSettings = Object.fromEntries(extendSettings?.filter(([_name, exp]) => exp.kind != SyntaxKind.FunctionExpression) || []),
             methods = extendSettings?.filter(([_name, exp]) => exp.kind == SyntaxKind.FunctionExpression) as [string, FunctionExpression][];
         return {
             jsDocs: jsDocs,
@@ -83,6 +83,77 @@ export class UI5Resource {
     }
 
     getClassDeclaration(classInfo: ClassInfo) {
+        let metaAST = classInfo.ui5ClassSettings.metadata as ObjectLiteralExpression,
+            metaDataProperty = !metaAST ? undefined : factory.createPropertyDeclaration(
+            undefined,
+            [
+                factory.createModifier(SyntaxKind.PublicKeyword),
+                factory.createModifier(SyntaxKind.StaticKeyword)
+            ],
+            factory.createIdentifier("metadata"),
+            undefined,
+            undefined,
+            factory.createObjectLiteralExpression(metaAST?.properties, false)
+        ),
+        newMethods = (classInfo.methods || []).map(([name, methodExpression]) => {
+            // console.log(ui5Api);
+
+            let transformedMethod = methodExpression,
+                superCallSelector = jsonata(`body.statements[expression.kind=${SyntaxKind.CallExpression} 
+                    and expression.expression.expression.name.text='${name}'
+                    and expression.expression.expression.expression.name.text='prototype'
+                    and expression.expression.expression.expression.expression.text='${classInfo.superClassName}']`),
+                superCall = superCallSelector.evaluate(methodExpression),
+                newBody = transformedMethod.body,
+                superImport = jsonata(`$[importClause.name.text='${classInfo.superClassName}' or importClause.namedBindings.elements.name.text='${classInfo.superClassName}']`).evaluate(this.importDeclarations) as ImportDeclaration,
+                nameBinding = jsonata(`importClause[name.text='${classInfo.superClassName}' or namedBindings.elements[name.text='${classInfo.superClassName}']]`).evaluate(superImport) as ImportSpecifier,
+                path = (superImport?.moduleSpecifier as any).text || "",
+                pathParts: string[] = path.split("/") || [],
+                superNameSpace = path?.split("/").splice(0, pathParts.length - 1).join("."),
+                cInfo = superCall && superNameSpace.substr(0, 3) == "sap" ? this.getSuperConstructorInfo(path, nameBinding?.propertyName?.text || path.split("/").pop()) : undefined;
+        
+            if (superCall) {
+                
+                if( superNameSpace == "sap.m" && cInfo ) {
+                    cInfo?.missingImports?.map( ({path: _path, name: name}) => factory.updateImportClause(superImport.importClause!, false, superImport.importClause!.name,
+                        
+                        factory.createNamedImports([...((superImport.importClause?.namedBindings as any)?.elements || []),
+                        factory.createImportSpecifier(
+                            undefined,
+                            factory.createIdentifier(name))
+                        ])
+                    ))
+                }
+
+
+                let newSuperCall = factory.createExpressionStatement(
+                    factory.createCallExpression(factory.createSuper(), undefined, undefined ||
+                        cInfo?.parameters.map(paramDeclaration => factory.createIdentifier((paramDeclaration.name as any).text))));
+                newBody = factory.createBlock(transformedMethod.body.statements.map( statement => statement == superCall ? newSuperCall : statement), true);
+            }
+
+            let newMethod = name == "init" ? 
+                factory.createConstructorDeclaration(
+                    undefined,
+                    undefined,
+                    cInfo?.parameters || methodExpression.parameters,
+                    newBody
+                ) :
+                factory.createMethodDeclaration(
+                    undefined,
+                    name.substr(0,1) != "_" ? undefined : factory.createModifiersFromModifierFlags( ModifierFlags.Private ),
+                    undefined,
+                    name,
+                    undefined,
+                    methodExpression.typeParameters,
+                    methodExpression.parameters,
+                    undefined,
+                    newBody
+                );
+                return newMethod;
+            }
+        ),
+        elements = metaDataProperty ? [metaDataProperty, ...newMethods] : newMethods;
         return factory.createClassDeclaration(
             undefined,
             [factory.createModifier(SyntaxKind.ExportKeyword)],
@@ -93,64 +164,7 @@ export class UI5Resource {
                     [factory.createExpressionWithTypeArguments(factory.createIdentifier(classInfo.superClassName), /*typeArguments*/ undefined)]
                 )
             ],
-            (classInfo.methods || []).map(([name, methodExpression]) => {
-                // console.log(ui5Api);
-
-                let transformedMethod = methodExpression,
-                    superCallSelector = jsonata(`body.statements[expression.kind=206 
-                        and expression.expression.expression.name.text='${name}'
-                        and expression.expression.expression.expression.name.text='prototype'
-                        and expression.expression.expression.expression.expression.text='${classInfo.superClassName}']`),
-                    superCall = superCallSelector.evaluate(methodExpression),
-                    newBody = transformedMethod.body,
-                    superImport = jsonata(`$[importClause.name.text='${classInfo.superClassName}' or importClause.namedBindings.elements.name.text='${classInfo.superClassName}']`).evaluate(this.importDeclarations) as ImportDeclaration,
-                    nameBinding = jsonata(`importClause[name.text='${classInfo.superClassName}' or namedBindings.elements[name.text='${classInfo.superClassName}']]`).evaluate(superImport) as ImportSpecifier,
-                    path = (superImport?.moduleSpecifier as any).text || "",
-                    pathParts: string[] = path.split("/") || [],
-                    superNameSpace = path?.split("/").splice(0, pathParts.length - 1).join("."),
-                    cInfo = superCall && superNameSpace == "sap.m" ? this.getSuperConstructorInfo(path, nameBinding?.propertyName?.text || path.split("/").pop()) : undefined;
-            
-                if (superCall) {
-                    
-                    if( superNameSpace == "sap.m" && cInfo ) {
-                        cInfo?.missingImports?.map( ({path: _path, name: name}) => factory.updateImportClause(superImport.importClause!, false, superImport.importClause!.name,
-                            
-                            factory.createNamedImports([...((superImport.importClause?.namedBindings as any)?.elements || []),
-                            factory.createImportSpecifier(
-                                undefined,
-                                factory.createIdentifier(name))
-                            ])
-                        ))
-                    }
-
-
-                    let newSuperCall = factory.createExpressionStatement(
-                        factory.createCallExpression(factory.createSuper(), undefined, undefined ||
-                            cInfo?.parameters.map(paramDeclaration => factory.createIdentifier((paramDeclaration.name as any).text))));
-                    newBody = factory.createBlock(transformedMethod.body.statements.map( statement => statement == superCall ? newSuperCall : statement), true);
-                }
-
-                let newMethod = name == "init" ? 
-                    factory.createConstructorDeclaration(
-                        undefined,
-                        undefined,
-                        cInfo?.parameters || methodExpression.parameters,
-                        newBody
-                    ) :
-                    factory.createMethodDeclaration(
-                        undefined,
-                        name.substr(0,1) != "_" ? undefined : factory.createModifiersFromModifierFlags( ModifierFlags.Private ),
-                        undefined,
-                        name,
-                        undefined,
-                        methodExpression.typeParameters,
-                        methodExpression.parameters,
-                        undefined,
-                        newBody
-                    );
-                    return newMethod;
-                }
-            ));
+            elements);
     }
 
     addNewLineComment(node: Node) {
@@ -164,7 +178,6 @@ export class UI5Resource {
 
     async migrateUI5SourceFileFromES5() : Promise<string> {
 
-        try {
         let ui5DefineStatement = this.getUI5Define(),
             declarationsBlock;
         if( !ui5DefineStatement ) {
@@ -198,23 +211,21 @@ export class UI5Resource {
         newContent = this.removeNewLineComments(newContent);
         
         console.log("transformed", this.path);
-        return newContent
-        } catch (error) {
-            console.error(error);
-            return "";
-        }
+        return newContent;
     }
 
     static getTypeLibAst(projectPath: string, importPath: string) {
+        if( importPath.substr(0, 3) == "sap" ) {
+            let nameSpace = importPath.substr(0, importPath.matchAll(/[A-Z]/g).next().value.index - 1).replace(/\//g, "."),
+                path = projectPath + '/node_modules/@types/openui5/' + nameSpace + '.d.ts';
+            if( !this.ui5Types[nameSpace] ) {
+                this.ui5Types[nameSpace] = ASTService.getAST(path);
+            }
+            let parentTypeLibAst = jsonata(`statements[name.text='${importPath}']`).evaluate(this.ui5Types[nameSpace]) as Statement;
 
-        if(this.ui5Types == null) {
-            let path = projectPath + '/node_modules/@types/openui5/sap.m.d.ts';
-            this.ui5Types = ASTService.getAST(path);
+            return parentTypeLibAst
         }
-        
-        let parentTypeLibAst = jsonata(`statements[name.text='${importPath}']`).evaluate(this.ui5Types);
-
-        return parentTypeLibAst
+        return undefined;
     }
 
     getTypeAst(importPath: string, className: string) {

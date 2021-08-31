@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { ASTService } from "./ASTService";
 // import { ITaskParameters, Workspace } from "./model/types";
 import { promises as fs } from 'fs';
@@ -26,7 +27,7 @@ function addConfigFiles() {
 export async function migrate(args: string[]) {
     
     let // TODO use argv later for params
-    projectPath = args[0],
+    projectPath = args[2] || __dirname,
     topLevelFiles = await fs.readdir(projectPath);
 
     addProjectDependencies(projectPath, topLevelFiles)
@@ -43,7 +44,11 @@ export async function migrate(args: string[]) {
                 let outputFilePath = filePath.replace(/.js$/g, ".ts"),
                 ui5Resource = new UI5Resource(filePath, projectPath);
                 return ui5Resource.migrateUI5SourceFileFromES5()
-                    .then( newContent => fs.writeFile(outputFilePath, newContent));
+                    .then( newContent => fs.writeFile(outputFilePath, newContent))
+                    .catch(error => {
+                        console.error(error?.message);
+                        throw error;
+                    });
             }));
             success(matches);
         });

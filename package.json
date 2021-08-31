@@ -3,6 +3,9 @@
     "version": "0.1.6",
     "description": "Migration task for ui5 projects which allows migrating UI5 AMD Sources to Typescript",
     "main": "dist/index.js",
+    "bin": {
+        "ui5-task-ts-migration": "dist/index.js"
+    },
     "scripts": {
         "test": "npm run build && npm run coverage",
         "dev": "mocha --no-timeouts -r ts-node/register 'test/**/*.spec.ts'",
