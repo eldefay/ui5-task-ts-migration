@@ -1,6 +1,6 @@
 {
     "name": "ui5-task-ts-migration",
-    "version": "0.1.6",
+    "version": "0.1.7",
     "description": "Migration task for ui5 projects which allows migrating UI5 AMD Sources to Typescript",
     "main": "dist/index.js",
     "bin": {
@@ -35,9 +35,6 @@
         "@ui5/fs": "^2.0.6",
         "@ui5/logger": "^2.0.1",
         "@ui5/project": "^2.3.1",
-        "adm-zip": "^0.5.5",
-        "amdextract": "^3.0.0",
-        "builtin-modules": "^3.2.0",
         "glob": "^7.1.7",
         "js-yaml": "^4.1.0",
         "jsonata": "^1.7.0",

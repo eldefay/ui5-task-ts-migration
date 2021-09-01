@@ -1,16 +1,16 @@
 import * as chai from "chai";
 import * as sinon from "sinon";
-import * as fs from "fs";
+import { promises as fs } from 'fs';
 
 import { SinonSandbox } from "sinon";
 
-import { migrate } from "../src/index";
+import { addTypescriptProjectDependencies, migrate } from '../src/util/projectUtil';
 import { UI5Resource } from "../src/UI5Resource";
 
 const { expect } = chai;
 
 describe("Index", () => {
-    let testProjectPath = __dirname + '/resources/testProject';
+    let localTestProjectPath = __dirname + '/resources/testProject';
     let sandbox: SinonSandbox;
 
     beforeEach(() => sandbox = sinon.createSandbox());
@@ -19,12 +19,14 @@ describe("Index", () => {
     it("should migrate ui5 class variations", async function () {
         this.timeout(100000);
 
+        await addTypescriptProjectDependencies(localTestProjectPath);
+
         ["ClassOne", "ClassTwo"].map(async cName => {
-            let path = __dirname + "/resources/" + cName + ".js",
-            ui5Resource = new UI5Resource(path, __dirname),
+            let path = localTestProjectPath + "/src/" + cName + ".js",
+            ui5Resource = new UI5Resource(path, localTestProjectPath),
             result = await ui5Resource.migrateUI5SourceFileFromES5();
 
-            let referenceOutput = fs.readFileSync(path.replace(/.js$/g, ".ts"), { encoding: "utf-8" });
+            let referenceOutput = await fs.readFile(path.replace(/.js$/g, ".reference.ts"), { encoding: "utf-8" });
 
             expect(result).equal(referenceOutput, cName + " migration" );
         });
@@ -32,7 +34,7 @@ describe("Index", () => {
 
     xit("should run task ", async function() {
         this.timeout(1000000);
-        await migrate(["", "", testProjectPath]);
+        await migrate(["", "", localTestProjectPath]);
         expect(1).lessThanOrEqual(1);
     });
 
