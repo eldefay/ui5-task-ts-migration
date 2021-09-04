@@ -40,5 +40,29 @@ sap.ui.define([
         this.setProperty("arrayOfStrings", aArrayOfStrings);
     };
 
+    /**
+     * @method
+     * @override
+     * @description
+     * 
+     * some method calling super (applying arguments form base class)
+     */
+     ClassOne.prototype.setBusy = function() {
+        Control.prototype.setBusy.apply(this, arguments);
+        return this;
+    };
+
+    /**
+     * @method
+     * @override
+     * @description
+     * 
+     * some method calling deep super (applying arguments from deep base class)
+     */
+    ClassOne.prototype.addAggregation = function() {
+        Control.prototype.addAggregation.apply(this, arguments);
+        return this;
+    };
+
     return ClassOne;
 });

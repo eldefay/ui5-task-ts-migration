@@ -1,16 +1,21 @@
-import Control from "sap/ui/core/Control"; 
-
-
+import Control, { $ControlSettings } from "sap/ui/core/Control";
+import ManagedObject from "sap/ui/base/ManagedObject";
 export class ClassOne extends Control {
     public static metadata = { properties: {
             "arrayOfStrings": { type: "string[]", defaultValue: [] }
         } };
-    constructor() {
-        super();
+    constructor(mSettings?: $ControlSettings) {
+        super(mSettings);
     }
     setArrayOfStrings(aArrayOfStrings) {
         this.setProperty("arrayOfStrings", aArrayOfStrings);
     }
+    setBusy(bBusy: boolean) {
+        super.setBusy(bBusy);
+        return this;
+    }
+    addAggregation(sAggregationName: string, oObject: ManagedObject, bSuppressInvalidate?: boolean) {
+        super.addAggregation(sAggregationName, oObject, bSuppressInvalidate);
+        return this;
+    }
 }
-"use strict";
-return ClassOne;
