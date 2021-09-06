@@ -29,7 +29,7 @@ function addConfigFiles() {
     let // TODO use argv later for params
     projectPath = args[2] || __dirname;
 
-    addTypescriptProjectDependencies(projectPath)
+    addTypescriptProjectDependencies(projectPath);
     // addConfigFiles();
     return new Promise(async (success, fail) => {
         glob("!(node_modules|dist)/**/*.js", {

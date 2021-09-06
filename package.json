@@ -7,10 +7,10 @@
         "ui5-task-ts-migration": "dist/index.js"
     },
     "scripts": {
-        "test": "npm run build && npm run dev",
-        "dev": "mocha --no-timeouts -r ts-node/register 'test/**/*.spec.ts'",
-        "coverage": "nyc node_modules/.bin/mocha -r ts-node/register 'test/**/*.spec.ts'",
-        "coverage-verbose": "nyc --reporter=html --reporter=text node_modules/.bin/mocha -r ts-node/register 'test/**/*.spec.ts'",
+        "test": "npm run build && npm run jest",
+        "jest": "jest",
+        "coverage": "npm run jest --collect-coverage",
+        "coverage-verbose": "npm run coverage --verbose",
         "build": "tsc -p ."
     },
     "files": [
@@ -38,71 +38,18 @@
         "glob": "^7.1.7",
         "js-yaml": "^4.1.0",
         "jsonata": "^1.7.0",
-        "node-fetch": "^2.6.1",
-        "rimraf": "^3.0.2",
-        "temp-dir": "^2.0.0",
         "ts-morph": "^11.0.3",
         "typescript": "^4.3.5"
     },
     "devDependencies": {
-        "@istanbuljs/nyc-config-typescript": "^1.0.1",
-        "@types/adm-zip": "^0.4.34",
-        "@types/chai": "^4.2.18",
-        "@types/mocha": "^8.2.2",
-        "@types/node-fetch": "^2.5.10",
-        "@types/request": "^2.48.5",
-        "@types/rimraf": "^3.0.0",
+        "@types/glob": "^7.1.4",
+        "@types/jest": "^27.0.1",
         "@types/sinon": "^10.0.0",
-        "chai": "^4.3.4",
-        "mocha": "^8.4.0",
-        "mock-require": "^3.0.3",
-        "nyc": "^15.1.0",
+        "jest": "^27.1.0",
         "sinon": "^11.1.0",
         "source-map-support": "^0.5.19",
+        "ts-jest": "^27.0.5",
         "ts-node": "^10.0.0"
-    },
-    "nyc": {
-        "reporter": [
-            "lcov",
-            "text",
-            "text-summary"
-        ],
-        "exclude": [
-            ".eslintrc.js",
-            "docs/**",
-            "jsdocs/**",
-            "coverage/**",
-            "test/**",
-            "lib/processors/jsdoc/lib/**",
-            "dist/**",
-            "src/model/types.ts",
-            "src/util/requestUtil.ts"
-        ],
-        "check-coverage": true,
-        "statements": 85,
-        "branches": 70,
-        "functions": 90,
-        "lines": 85,
-        "watermarks": {
-            "statements": [
-                70,
-                90
-            ],
-            "branches": [
-                70,
-                90
-            ],
-            "functions": [
-                70,
-                90
-            ],
-            "lines": [
-                70,
-                90
-            ]
-        },
-        "cache": true,
-        "all": true
     },
     "types": "dist/index.d.ts"
 }

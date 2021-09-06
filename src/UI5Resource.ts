@@ -259,7 +259,7 @@ export class UI5Resource {
             .evaluate(librarySourceFile) as ClassDeclaration;
 
         if(!classAst) {
-            console.log(`class "${className}" not found in "${importPath}", will search in imports`);
+            // console.log(`class "${className}" not found in "${importPath}", will search in imports`);
             let imports = jsonata(`[body.statements[kind=${SyntaxKind.ImportDeclaration}]]`).evaluate(librarySourceFile) as ImportDeclaration[],
                 superImport = imports.find(id =>  id.importClause?.name?.text == className ||
                     (id.importClause?.namedBindings as NamedImports)?.elements.find(nbe => nbe.name.text == className));

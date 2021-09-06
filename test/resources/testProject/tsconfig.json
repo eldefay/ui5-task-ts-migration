@@ -4,7 +4,7 @@
         "rootDir": "./src",
         "module": "commonjs",
         "lib": [
-            "es7"
+            "ESNext"
         ],
         "plugins": [
             {
