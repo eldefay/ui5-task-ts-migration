@@ -3,4 +3,5 @@ package-lock.json
 .DS_Store
 dist/
 coverage/
-.nyc_output/
+test/resources/testProject/**/*.ts
+!test/resources/testProject/**/*.reference.ts

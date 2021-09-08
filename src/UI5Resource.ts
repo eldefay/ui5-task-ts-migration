@@ -6,6 +6,7 @@ import {TypeNode, NodeArray, SyntaxKind, SourceFile, CallExpression, FunctionExp
     ParameterDeclaration, NamedImports, ReturnStatement, MethodDeclaration} from 'typescript';
 import jsonata from "jsonata";
 import { ASTService } from './ASTService';
+import { UI5MigrationProject } from './UI5MigrationProject';
 
 export type ClassInfo = {
     jsDocs: any,
@@ -26,12 +27,12 @@ export class UI5Resource {
         classes: ClassInfo[];
         otherExpressions: Statement[];
     };
-    classDeclarations: any;
+    classDeclarations: ClassDeclaration[] = [];
     missingImports: {
         path: string;
         name: string;
     }[] = [];
-    constructor(public path: string, public projectPath: string) {
+    constructor(public path: string, public project: UI5MigrationProject) {
         
     }
 
@@ -209,27 +210,25 @@ export class UI5Resource {
     }
 
     analyse() {
-        this.sourceFile = ASTService.getAST(this.path);
+        this.sourceFile = this.project.program?.getSourceFile(this.path)
+        // this.sourceFile = ASTService.getAST(this.path);
         let ui5DefineStatement = this.getUI5Define();
         this.info = this.getUI5Definitions(ui5DefineStatement);
+        this.classDeclarations = this.info?.classes.map(classInfo => this.getClassDeclaration(classInfo));
+        // missing imports are gathered in line above
     }
 
-    async migrateUI5SourceFileFromES5() : Promise<string> {
-        this.analyse();
-        
-        this.classDeclarations = this.info?.classes.map(classInfo => this.getClassDeclaration(classInfo)) || [];
+    getTypescriptContent() : string {
+        // missing imports are gathered in this.analyse
         let importDecelerations = this.createImports();
 
         let declarationsBlock = factory.createBlock(
             ([] as Statement[])
-                .concat(importDecelerations || [])
+                .concat(importDecelerations)
                 .concat(this.classDeclarations)
                 .concat(this.info?.otherExpressions || [])
             || this.sourceFile?.statements)
         let newContent = declarationsBlock.statements.flatMap(s => s).map(s => ASTService.print(s)).join("\n");
-        
-        console.log("transformed", this.path);
-        // console.log("newContent", newContent);
         return newContent;
     }
 
@@ -254,7 +253,7 @@ export class UI5Resource {
         classAst: ClassDeclaration
     } {
 
-        let librarySourceFile = UI5Resource.getTypeLibAst(this.projectPath, importPath),
+        let librarySourceFile = UI5Resource.getTypeLibAst(this.project.workspacePath||this.project.path, importPath),
         classAst = jsonata(`body.statements[name.text = '${className}']`)
             .evaluate(librarySourceFile) as ClassDeclaration;
 

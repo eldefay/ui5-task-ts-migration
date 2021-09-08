@@ -3,7 +3,7 @@ import { promises as fs } from 'fs';
 
 import { SinonSandbox } from "sinon";
 
-import { addTypescriptProjectDependencies, migrate } from '../src/util/projectUtil';
+import { addTypescriptProjectDependencies, migrate, UI5MigrationProject } from '../src/UI5MigrationProject';
 import { UI5Resource } from "../src/UI5Resource";
 
 describe("Migration Tests", () => {
@@ -14,16 +14,20 @@ describe("Migration Tests", () => {
     afterEach(() => sandbox.restore());
 
     it("should migrate ui5 class variations", async function() {
-
+        jest.setTimeout(100000);
+        let testProject = new UI5MigrationProject(localTestProjectPath);
+        
         await addTypescriptProjectDependencies(localTestProjectPath);
+        await testProject.createProgram();
 
         ["ClassOne", "ClassTwo"].map(async cName => {
             let path = localTestProjectPath + "/src/" + cName + ".js",
-            ui5Resource = new UI5Resource(path, localTestProjectPath),
+            ui5Resource = new UI5Resource(path, testProject),
             result = "";
             
             try {
-                result = await ui5Resource.migrateUI5SourceFileFromES5();
+                ui5Resource.analyse()
+                result = ui5Resource.getTypescriptContent();
             } catch(error) {
                 console.error(error)
             }
@@ -36,7 +40,8 @@ describe("Migration Tests", () => {
 
     xit("should run task ", async function() {
         await migrate(["", "", localTestProjectPath]);
-        expect(1).toBe(1);
+        // TODO mock fs in memory
+        // expect(fs.writeFile).toHaveBeenCalledTimes(3);
     });
 
 });
