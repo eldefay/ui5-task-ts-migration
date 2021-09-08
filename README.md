@@ -1,3 +1,5 @@
+[![CI](https://github.com/eldefay/ui5-task-ts-migration/actions/workflows/main.yml/badge.svg)](https://github.com/eldefay/ui5-task-ts-migration/actions/workflows/main.yml)
+
 # ui5-task-ts-migration
  migrate ui5 AMD (Asynchronous Module Definition) sources to typesript
 
