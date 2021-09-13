@@ -50,7 +50,7 @@ export class UI5Resource {
         let defineCallBody = (ui5DefineAst.arguments[1] as FunctionExpression).body,
             returnStatement = jsonata(`statements[kind=${SyntaxKind.ReturnStatement}]`).evaluate(defineCallBody) as ReturnStatement,
             useStrictStatement = jsonata(`statements[expression.text='use strict']`).evaluate(defineCallBody) as ExpressionStatement,
-            mainExportName = (returnStatement.expression as any)?.text as string,
+            mainExportName = (returnStatement?.expression as any)?.text as string,
             extendDeclarations = jsonata("[arguments[1].body.statements[declarationList.declarations[0].initializer.expression.name.text='extend' or expression.expression.name.text='extend']]").evaluate(ui5DefineAst),
             classInfos = extendDeclarations?.map(this.getUI5ClassInfo.bind(this)) as ClassInfo[] || [],
             otherExpressions = (ui5DefineAst.arguments[1] as FunctionExpression).body.statements
@@ -69,7 +69,11 @@ export class UI5Resource {
             let createPageObjectsAsts = jsonata("arguments[1].body.statements[expression.expression.expression.text='Opa5']").evaluate(ui5DefineAst);
 
         return {
-            imports: Object.fromEntries(jsonata("$zip(arguments[0].[elements.text], [[arguments[1].parameters.name.text]])").evaluate(ui5DefineAst) as [[string,string[]]]),
+            imports: Object.fromEntries(
+                (jsonata("$zip([arguments[0].[elements.text]], [arguments[1].parameters.name.text])")
+                .evaluate(ui5DefineAst) as [[string,string]])
+                .map(x => ([x[0],[x[1]]]) )
+            ),
             classes: classInfos,
             otherExpressions: otherExpressions,
             exportName: mainExportName
@@ -137,19 +141,23 @@ export class UI5Resource {
                             factory.createSuper(), factory.createIdentifier(name)
                         ),
                         undefined,
-                        cInfo?.parameters?.map(paramDeclaration => factory.createIdentifier((paramDeclaration.name as any).text))
-                        || [factory.createSpreadElement(factory.createIdentifier(UI5Resource.ARGS))]
+                        (cInfo?.parameters?.length || 0) > 0
+                            ? cInfo?.parameters?.map(paramDeclaration => factory.createIdentifier((paramDeclaration.name as any).text))
+                            : [factory.createSpreadElement(factory.createIdentifier(UI5Resource.ARGS))]
                     ));
                 newBody = factory.createBlock(transformedMethod.body.statements.map( statement => statement == superCall ? newSuperCall : statement), true);
             }
 
             let newParameters = cInfo?.parameters ||
-                (methodExpression.parameters.length > 0 ? methodExpression.parameters : [
-                    factory.createParameterDeclaration(/*decorators*/ undefined,
-                        /*modifiers*/ undefined,
+                (methodExpression.parameters?.length > 0 ? methodExpression.parameters : [
+                    factory.createParameterDeclaration(
+                        undefined,
+                        undefined,
                         factory.createToken(SyntaxKind.DotDotDotToken),
                         UI5Resource.ARGS,
-                        /*questionToken*/ undefined)]);
+                        undefined,
+                        factory.createKeywordTypeNode(SyntaxKind.AnyKeyword),
+                        undefined)]);
 
             let newMethod = name == "init" ? 
                 factory.createConstructorDeclaration(
@@ -193,7 +201,7 @@ export class UI5Resource {
             this.info!.imports[missingImport.path] = [...new Set([...(importsForPath || []), missingImport.name])];
         })
         
-        let importDeclarations = Object.entries(this.info!.imports).map(([path, names]) => factory.createImportDeclaration(
+        let importDeclarations = Object.entries(this.info?.imports || {}).map(([path, names]) => factory.createImportDeclaration(
             undefined,
             undefined,
             factory.createImportClause(false, 
@@ -213,28 +221,37 @@ export class UI5Resource {
         this.sourceFile = this.project.program?.getSourceFile(this.path)
         // this.sourceFile = ASTService.getAST(this.path);
         let ui5DefineStatement = this.getUI5Define();
-        this.info = this.getUI5Definitions(ui5DefineStatement);
-        this.classDeclarations = this.info?.classes.map(classInfo => this.getClassDeclaration(classInfo));
-        // missing imports are gathered in line above
+        if(ui5DefineStatement) {
+            this.info = this.getUI5Definitions(ui5DefineStatement);
+            this.classDeclarations = this.info?.classes.map(classInfo => this.getClassDeclaration(classInfo));
+            // missing imports are gathered in line above    
+        }
     }
 
-    getTypescriptContent() : string {
+    getTypescriptContent() {
         // missing imports are gathered in this.analyse
         let importDecelerations = this.createImports();
-
-        let declarationsBlock = factory.createBlock(
-            ([] as Statement[])
-                .concat(importDecelerations)
-                .concat(this.classDeclarations)
-                .concat(this.info?.otherExpressions || [])
-            || this.sourceFile?.statements)
-        let newContent = declarationsBlock.statements.flatMap(s => s).map(s => ASTService.print(s)).join("\n");
-        return newContent;
+        try {
+            let declarationsBlock = factory.createBlock(
+                ([] as Statement[])
+                    .concat(importDecelerations)
+                    .concat(this.classDeclarations)
+                    .concat(this.info?.otherExpressions || [])
+                || this.sourceFile?.statements)
+            let newContent = declarationsBlock.statements.flatMap(s => s).map(s => ASTService.print(s)).join("\n");
+            return newContent;
+        } catch (e) {
+            console.error(e);
+        }
+        return undefined;
     }
 
     static getTypeLibAst(projectPath: string, importPath: string) {
         if( importPath.substr(0, 3) == "sap" ) {
-            let nameSpace = importPath.substr(0, importPath.matchAll(/[A-Z]/g).next().value.index - 1).replace(/\//g, "."),
+            if( importPath == "sap/ui/thirdparty/jquery" ) {
+                importPath = "jquery";
+            }
+            let nameSpace = importPath.substr(0, importPath.matchAll(/[A-Z]/g).next().value?.index - 1).replace(/\//g, "."),
                 path = projectPath + '/node_modules/@types/openui5/' + nameSpace + '.d.ts';
             if( !this.ui5Types[nameSpace] ) {
                 this.ui5Types[nameSpace] = ASTService.getAST(path) || this.ui5Types["sap.ui.core"];
@@ -252,7 +269,10 @@ export class UI5Resource {
         importPath: string,
         classAst: ClassDeclaration
     } {
-
+        // CompilerHost.resolveModuleNames(moduleNames: string[], containingFile: string)
+        // this.project!.compilerHost!.resolveModuleNames([], this.sourceFile?.getFullText() || "",)
+        // TODO: use resolveModuleNames instead of own impl.
+        this.project?.compilerHost?.resolveModuleNames?.([], "", undefined, undefined, {})
         let librarySourceFile = UI5Resource.getTypeLibAst(this.project.workspacePath||this.project.path, importPath),
         classAst = jsonata(`body.statements[name.text = '${className}']`)
             .evaluate(librarySourceFile) as ClassDeclaration;
@@ -295,7 +315,7 @@ export class UI5Resource {
             superConstructors   = !isConstructor ? undefined : jsonata(`[members[kind=${SyntaxKind.Constructor}]]`).evaluate(classAst) as ConstructorDeclaration[];
 
         if(!superMethodAst && !superConstructors && classAst) {
-            let superParentClassName = (classAst.heritageClauses?.find(c => c.token == SyntaxKind.ExtendsKeyword)?.types[0].expression as any).text,
+            let superParentClassName = (classAst.heritageClauses?.find(c => c.token == SyntaxKind.ExtendsKeyword)?.types[0].expression as any)?.text,
                 superMethodInfo = !superParentClassName ? undefined : this.getSuperMethodInfo(importPath, superParentClassName, methodName);
             return superMethodInfo;
         }

@@ -3,32 +3,58 @@ import { promises as fs } from 'fs';
 import { glob } from 'glob';
 import util from 'util';
 import { UI5Resource } from './UI5Resource';
-import { createProgram, ModuleKind, Program } from 'typescript';
-import findWorkspaceRoot from 'find-workspace-root';
+import { CompilerHost, CompilerOptions, createCompilerHost, createProgram, findConfigFile, ModuleKind, Program, sys } from 'typescript';
 import path from 'path';
 
 export class UI5MigrationProject {
     program: Program | undefined;
-    workspacePath: string | null = null;
+    compilerHost: CompilerHost| undefined;
+    workspacePath: string | undefined;
     ui5Resources: UI5Resource[] = [];
     constructor(public path: string) {
         
     }
 
     async createProgram() {
-        let pattern = "!(node_modules|dist|coverage)/**/*.js";
-        let jsFilePaths = await util.promisify(glob)(pattern, {
+        let pattern = "!(node_modules|dist|coverage)/**/*.js",
+        jsFilePaths = await util.promisify(glob)(pattern, {
             cwd: this.path,
             absolute: true
-        });
-        this.program = createProgram(jsFilePaths, {
+        }),
+        options : CompilerOptions = {
             allowJs: true,
             module: ModuleKind.ES2020
-        });
+        };
+
+        this.compilerHost = createCompilerHost(options);
+        
+        this.program = createProgram(jsFilePaths, options, this.compilerHost);
+        // TODO use program.emit with different options
+        // (declaration: true) to generate type definition files
+        // program.emit();
+    }
+
+    emit() {
+
+    }
+
+    async findWorkspaceRoot() {
+        return Promise.all(["../", "../.."]
+            .map((parentDirPath) => path.resolve(this.path, parentDirPath))
+            .map(async (parentDirPath) => {
+                let parentPackageJson = await fs
+                    .readFile(parentDirPath  + "/package.json", { encoding: "utf-8" })
+                    .catch(_e => {} ); // no file
+                if( parentPackageJson ) {
+                    let workspacePackageJson = JSON.parse(parentPackageJson);
+                    if((workspacePackageJson.workspaces?.packages as string[]).includes(path.basename(this.path))) {
+                        this.workspacePath = parentDirPath;
+                    }
+                }
+            }));
     }
 
     async analyse() {
-        this.workspacePath = await findWorkspaceRoot(this.path);
         await this.createProgram();
 
         return Promise.all((this.program?.getRootFileNames() || []).map(async (filePath, index) => {
@@ -54,31 +80,47 @@ export class UI5MigrationProject {
                 fs.writeFile(eslintrcPath, JSON.stringify(eslintrcJSON));
             }
         }
+
+        const configPath = findConfigFile(
+            /*searchPath*/ "./",
+            sys.fileExists,
+            "tsconfig.json"
+          );
+          if (!configPath) {
+            // throw new Error("Could not find a valid 'tsconfig.json'.");
+          }
     }
 
     async migrate() {
-        await addTypescriptProjectDependencies(this.path);
+        await this.findWorkspaceRoot();
+        await addTypescriptProjectDependencies(this.path, this.workspacePath);
         await this.addConfigFiles();
         await this.analyse();
         
         this.ui5Resources.forEach(async ui5Resource => {
             let outputFilePath = ui5Resource.path.replace(/.js$/g, ".ts");
             let newContent = ui5Resource.getTypescriptContent();
-            fs.writeFile(outputFilePath, newContent);
-            console.log("transformed", this.path);
+            if( newContent ) {
+                fs.writeFile(outputFilePath, newContent);
+                console.log("transformed", this.path);
+            }
             // console.log("newContent", newContent);
         });
     }
 }
 
-export async function addTypescriptProjectDependencies(projectPath: string) {
-    let topLevelFiles = await fs.readdir(projectPath),
+export async function addTypescriptProjectDependencies(projectPath: string, workspacePath?: string) {
+    let topLevelFiles = await fs.readdir(workspacePath || projectPath),
     // TODO check if already added & supported versions
     tsDependencies = "typescript @types/openui5@1.91.0 @types/jquery@3.5.1 @types/qunit@2.5.4";
     const { stdout, stderr } = await util.promisify(exec)(
         topLevelFiles.includes("yarn.lock") ?
         `yarn add ${tsDependencies} -D` :
-        `npm install ${tsDependencies} --save-dev `, {cwd: projectPath});
+        `npm install ${tsDependencies} --save-dev `, {cwd: projectPath}).catch(e => {
+            console.error(e);
+            return {stdout: undefined, stderr: undefined}
+        });
+    
 }
 
 

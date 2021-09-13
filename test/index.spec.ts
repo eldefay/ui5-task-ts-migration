@@ -27,7 +27,7 @@ describe("Migration Tests", () => {
             
             try {
                 ui5Resource.analyse()
-                result = ui5Resource.getTypescriptContent();
+                result = ui5Resource.getTypescriptContent() || "";
             } catch(error) {
                 console.error(error)
             }
