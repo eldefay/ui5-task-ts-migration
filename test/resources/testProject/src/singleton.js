@@ -28,7 +28,7 @@ sap.ui.define([
     singleton.someOtherFunction = function() {
         // Some Comment
         // Some other Comment
-        Control.prototype.init.apply(this, arguments);
+        Control.escapeSettingsValue("bla");
 
         // Some final Comment
     };

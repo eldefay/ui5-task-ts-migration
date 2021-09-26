@@ -3,7 +3,7 @@ import { promises as fs } from 'fs';
 import { glob } from 'glob';
 import util from 'util';
 import { UI5Resource } from './UI5Resource';
-import { CompilerHost, CompilerOptions, createCompilerHost, createProgram, findConfigFile, ModuleKind, Program, sys } from 'typescript';
+import { CompilerHost, CompilerOptions, createCompilerHost, createProgram, CreateProgramOptions, findConfigFile, ModuleKind, parseJsonConfigFileContent, Program, readConfigFile, sys } from 'typescript';
 import path from 'path';
 
 export class UI5MigrationProject {
@@ -31,11 +31,24 @@ export class UI5MigrationProject {
         this.program = createProgram(jsFilePaths, options, this.compilerHost);
         // TODO use program.emit with different options
         // (declaration: true) to generate type definition files
-        // program.emit();
+        // let x = this.program.emit();
     }
 
     emit() {
+        const configFile = findConfigFile(this.path, sys.fileExists, 'tsconfig.json'),
+        { config } = readConfigFile(configFile!, sys.readFile),
+        { options, fileNames, errors } = parseJsonConfigFileContent(config, sys, this.path);
 
+        // this.compilerHost = createCompilerHost(options);
+
+        let programOptions: CreateProgramOptions = {
+            rootNames: [],
+            options: options,
+            // projectReferences?: readonly ProjectReference[];
+            host: this.compilerHost
+        };
+        createProgram(programOptions);
+        this.program = createProgram(fileNames, options, this.compilerHost);
     }
 
     async findWorkspaceRoot() {
@@ -58,11 +71,8 @@ export class UI5MigrationProject {
         await this.createProgram();
 
         return Promise.all((this.program?.getRootFileNames() || []).map(async (filePath, index) => {
-            // let outputFilePath = filePath.replace(/.js$/g, ".ts");
             this.ui5Resources[index] = new UI5Resource(filePath, this);
             this.ui5Resources[index].analyse();
-            // let newContent = await ui5Resource.migrateUI5SourceFileFromES5();
-            // fs.writeFile(outputFilePath, newContent);
         }));
     }
 
@@ -71,28 +81,32 @@ export class UI5MigrationProject {
         
         let rootPath = this.workspacePath || this.path,
             eslintrcPath = path.join(rootPath, ".eslintrc"),
-            eslintrc = await fs.readFile(eslintrcPath, { encoding: "utf-8" });
+            eslintrc = await fs.readFile(eslintrcPath, { encoding: "utf-8" }).catch(_e => {} ); // no file;
         
         if( eslintrc ) {
-            let eslintrcJSON = JSON.parse(eslintrc)
+            let eslintrcJSON = JSON.parse(eslintrc);
             if( eslintrcJSON?.parserOptions?.sourceType ){
                 eslintrcJSON.parserOptions.sourceType = "module";
-                fs.writeFile(eslintrcPath, JSON.stringify(eslintrcJSON));
+                fs.writeFile(eslintrcPath, JSON.stringify(eslintrcJSON, undefined, 4));
             }
         }
 
-        const configPath = findConfigFile(
-            /*searchPath*/ "./",
-            sys.fileExists,
-            "tsconfig.json"
-          );
-          if (!configPath) {
-            // throw new Error("Could not find a valid 'tsconfig.json'.");
-          }
+        
+        const configFile = findConfigFile(this.path, sys.fileExists, 'tsconfig.json');
+        if (!configFile) {
+            // TODO create tsconfig
+            // let { config } = readConfigFile("tsconfig.template.json", sys.readFile);
+        } else {
+            let { config } = readConfigFile(configFile!, sys.readFile);
+            const { options, fileNames, errors } = parseJsonConfigFileContent(config, sys, this.path);
+        }
     }
 
     async migrate() {
         await this.findWorkspaceRoot();
+        if( this.workspacePath ) {
+            console.log("workspace path: " + this.workspacePath);
+        }
         await addTypescriptProjectDependencies(this.path, this.workspacePath);
         await this.addConfigFiles();
         await this.analyse();
@@ -102,7 +116,7 @@ export class UI5MigrationProject {
             let newContent = ui5Resource.getTypescriptContent();
             if( newContent ) {
                 fs.writeFile(outputFilePath, newContent);
-                console.log("transformed", this.path);
+                console.log("transformed", ui5Resource.path);
             }
             // console.log("newContent", newContent);
         });

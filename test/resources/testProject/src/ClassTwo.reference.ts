@@ -6,7 +6,7 @@ export class ClassTwo extends Control {
     constructor(mSettings?: $ControlSettings) {
         super(mSettings);
     }
-    setArrayOfStrings(aArrayOfStrings) {
+    setArrayOfStrings(aArrayOfStrings: any) {
         this.setProperty("arrayOfStrings", aArrayOfStrings);
     }
 }

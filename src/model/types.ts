@@ -69,6 +69,10 @@ export interface ResourceSettings {
     project: any
 }
 
+export class ASTService {
+    static project: any
+}
+
 export interface Resource {
     getPath(): string;
     getBuffer(): Buffer;
