@@ -3,33 +3,35 @@ import {TypeNode, NodeArray, SyntaxKind, SourceFile, CallExpression, FunctionExp
     ObjectLiteralExpression, VariableDeclaration, StringLiteral, PropertyAccessExpression,
     Identifier, PropertyAssignment, ExpressionStatement, Expression, BinaryExpression,
     Statement, factory, ModifierFlags, ImportDeclaration, ClassDeclaration, ConstructorDeclaration,
-    ParameterDeclaration, NamedImports, ReturnStatement, MethodDeclaration, Node, FunctionLikeDeclarationBase, FunctionDeclaration, ArrowFunction, Block, VariableStatement} from 'typescript';
+    ParameterDeclaration, NamedImports, ReturnStatement, MethodDeclaration, Node, NewExpression, FunctionDeclaration, ArrowFunction, Block, VariableStatement} from 'typescript';
 import jsonata from "jsonata";
 import { ASTService } from './ASTService';
 import { UI5MigrationProject } from './UI5MigrationProject';
-import { LiteralExpression } from 'ts-morph';
 
-type MethodInfo = {
+type MemberInfo = {
     name: string,
-    body: FunctionExpression | ArrowFunction,
+    body: Expression,
     isStatic: boolean
 };
-export type ClassInfo = {
+
+type MethodInfo = MemberInfo & {
+    body: FunctionExpression | ArrowFunction
+};
+
+type ClassInfoBase = {
     jsDocs: any,
     className : string,
+    constructorAst?: any,
+    methods?: MethodInfo[],
+    staticMethods?: MethodInfo[]
+    staticProperties?: MemberInfo[]
+}
+type ClassInfo = ClassInfoBase & {
     nameSpace : string,
     superClassName : string,
-    ui5ClassSettings : {[key: string]: Expression},
-    constructorAst?: any,
-    methods?: MethodInfo[],
-    staticMethods?: MethodInfo[]
+    ui5ClassSettings : {[key: string]: Expression}
 }
-export type SingletonInfo = {
-    jsDocs: any,
-    className : string,
-    constructorAst?: any,
-    methods?: MethodInfo[],
-    staticMethods?: MethodInfo[]
+type SingletonInfo = ClassInfoBase & {
 };
 
 export class UI5Resource {
@@ -72,7 +74,11 @@ export class UI5Resource {
             classInfos: (ClassInfo | SingletonInfo)[] = extendDeclarations?.map(this.getUI5ClassInfo.bind(this)) || [],
             
             // singletons
-            singletonBody = mainExportVar?.initializer?.kind == SyntaxKind.ObjectLiteralExpression ? mainExportVar?.initializer as ObjectLiteralExpression : undefined,
+            singletonBody = mainExportVar?.initializer?.kind == SyntaxKind.ObjectLiteralExpression ?
+                mainExportVar?.initializer as ObjectLiteralExpression : 
+                    (((mainExportVar?.initializer as NewExpression)?.expression as Identifier)?.text == "Object" ? 
+                        factory.createObjectLiteralExpression()
+                    : undefined),
             
             otherExpressions = [...(ui5DefineAst.arguments[1] as FunctionExpression).body.statements];
 
@@ -108,31 +114,47 @@ export class UI5Resource {
         otherExpressions = otherExpressions.filter(s => ![...extendDeclarations || [], useStrictStatement, returnStatement]?.includes(s));
 
         classInfos?.forEach(classInfo => {
-            let methods = (jsonata(`$[
-                        expression.left.expression.name.text='prototype'
-                    and expression.left.expression.expression.text='${classInfo.className}'
-                ].expression[]`).evaluate(otherExpressions) as any[])?.map((d) => {
-                    otherExpressions = otherExpressions.filter(s => d != (s as ExpressionStatement)?.expression);
-                    return {
-                        name: d.left.name.text as string,
-                        body: d.right as FunctionExpression,
-                        isStatic: false
-                    } as MethodInfo;
-            }),
-            staticMethodStatements = jsonata(`$[
-                expression.left.expression.text='${classInfo.className}'
-        ].expression[]`).evaluate(otherExpressions)?.map((d:any) => {
-            otherExpressions = otherExpressions.filter(s => d != (s as ExpressionStatement)?.expression);
-            return {
-                name: d.left.name.text as string,
-                body: d.right as FunctionExpression,
-                isStatic: true
-            };
-        }) as MethodInfo[];
 
-            otherExpressions = otherExpressions?.filter(d => !methods?.map(({body}) => body as any)?.includes(((d as ExpressionStatement)?.expression as BinaryExpression)?.right));
+            let methods = (jsonata(`$[
+                    expression.left.expression.name.text='prototype'
+                and expression.left.expression.expression.text='${classInfo.className}'
+                and (
+                        expression.right.kind=${SyntaxKind.FunctionExpression}
+                    or expression.right.kind=${SyntaxKind.ArrowFunction})
+            ].expression[]`).evaluate(otherExpressions) as BinaryExpression[])?.map((bExp) => {
+                otherExpressions = otherExpressions.filter(s => bExp != (s as ExpressionStatement)?.expression);
+                return {
+                    name: (bExp.left as PropertyAccessExpression)?.name.text,
+                    body: bExp.right as FunctionExpression | ArrowFunction,
+                    isStatic: false
+                } as MethodInfo;
+            }),
+
+            [staticMethods, staticProperties] = jsonata(`$[
+                expression.left.expression.text='${classInfo.className}'
+        ].expression[]`).evaluate(otherExpressions)?.reduce((acc: [MethodInfo[], MemberInfo[]], bExp: BinaryExpression) => {
+                otherExpressions = otherExpressions.filter(s => bExp != (s as ExpressionStatement)?.expression);
+                let memberInfo: MemberInfo = {
+                    name: (bExp.left as PropertyAccessExpression)?.name.text,
+                    body: bExp.right,
+                    isStatic: true
+                };
+                switch(bExp.right.kind) {
+                    case SyntaxKind.ArrowFunction:
+                    case SyntaxKind.FunctionExpression: {
+                        acc[0].push(memberInfo as MethodInfo);
+                        break;
+                    }
+                    default: {
+                        acc[1].push(memberInfo as MemberInfo);
+                    }
+                }
+            return acc;
+        }, [[],[]]);
+
             classInfo.methods = [...classInfo.methods ?? [], ...methods ?? []];
-            classInfo.staticMethods = [...classInfo.staticMethods ?? [], ...staticMethodStatements ?? []];
+            classInfo.staticMethods = [...classInfo.staticMethods ?? [], ...staticMethods ?? []];
+            classInfo.staticProperties = [...classInfo.staticProperties ?? [], ...staticProperties ?? []];
         });
         // Opa5.createPageObjects
         // TODO: check whether conversion needed for tests & how to run them afterwards
@@ -161,7 +183,7 @@ export class UI5Resource {
             extendSettings = (extendCall.arguments[1] as ObjectLiteralExpression)?.properties?.map(p =>
                 [(p.name as Identifier).text, (p as PropertyAssignment).initializer || p]) as [string, Expression][],
             ui5ClassSettings = Object.fromEntries(extendSettings?.filter(([_name, exp]) => exp.kind != SyntaxKind.FunctionExpression) || []),
-            methods = extendSettings?.filter(([_name, exp]) => exp.kind == SyntaxKind.FunctionExpression) as [string, FunctionExpression][];
+            methods = extendSettings?.filter(([_name, exp]) => exp.kind == SyntaxKind.FunctionExpression) ?? [] as [string, FunctionExpression][];
         return {
             jsDocs: jsDocs,
             className : className,
@@ -170,7 +192,7 @@ export class UI5Resource {
             ui5ClassSettings : ui5ClassSettings,
             methods: methods.map(([name, body]) => ({
                 name: name,
-                body: body,
+                body: body as ArrowFunction | FunctionExpression,
                 isStatic: false
             }))
         }
@@ -198,10 +220,10 @@ export class UI5Resource {
                 )
             ] : [],
         newMethods = ([... [], ...(classInfo as ClassInfo)?.methods ?? [],  ...classInfo.staticMethods ?? []]).map(({name, body: methodExpression, isStatic}) => {
-
-            let transformedMethod = methodExpression,
-            newBody = (transformedMethod as FunctionExpression).body ??
-                      (transformedMethod as ArrowFunction).body as Block,
+            
+            let newBody = (methodExpression as FunctionExpression).body?.statements ?
+                      (methodExpression as FunctionExpression).body :
+                      factory.createBlock([factory.createReturnStatement((methodExpression as ArrowFunction).body as Expression)] ?? []),
             newParameters = (methodExpression.parameters?.length > 0 ? 
                 methodExpression.parameters.map(oP => factory.createParameterDeclaration(
                     oP.decorators,
@@ -282,7 +304,20 @@ export class UI5Resource {
                 return newMethod;
             }
         ),
-        elements = metaDataProperty ? [metaDataProperty, ...newMethods] : newMethods;
+        newProperties = ([... [], ...classInfo.staticProperties ?? []]).map(({name, body: initializer, isStatic}) => {
+            let flags: ModifierFlags = ModifierFlags.None;
+            if( name.substr(0,1) == "_" ) {
+                flags |= ModifierFlags.Private;
+            }
+            if( isStatic ) {
+                flags |= ModifierFlags.Static;
+            }
+            return factory.createPropertyDeclaration(undefined, factory.createModifiersFromModifierFlags(flags), name, undefined, undefined, initializer);
+        }),
+        elements = [...newProperties, ...newMethods];
+        if( metaDataProperty ) {
+            elements.unshift(metaDataProperty);
+        }
         return factory.createClassDeclaration(
             undefined,
             [factory.createModifier(SyntaxKind.ExportKeyword)],

@@ -6,7 +6,7 @@ sap.ui.define([
     "use strict";
 
     /**
-     * singleton.
+     * singletonTwo.
      *
      * @class
      * @classdesc
@@ -18,14 +18,13 @@ sap.ui.define([
      * @public
      */
 
-    var singleton = {
-        someData: {
+    var singletonTwo = new Object();
+    singletonTwo.someData = {
             foo: "bar"
-        },
-        someFunction: () => {}
-    };
+        };
+    singletonTwo.someFunction = () => true;
 
-    singleton.someOtherFunction = function() {
+    singletonTwo.someOtherFunction = function() {
         // Some Comment
         // Some other Comment
         Control.escapeSettingsValue("bla");
@@ -33,9 +32,9 @@ sap.ui.define([
         // Some final Comment
     };
 
-    singleton.someSelfCallingFunction = function() {
+    singletonTwo.someSelfCallingFunction = function() {
         this.someOtherFunction();
     };
 
-    return singleton;
+    return singletonTwo;
 });
