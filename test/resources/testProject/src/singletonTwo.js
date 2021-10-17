@@ -1,8 +1,5 @@
 
-sap.ui.define([
-    "sap/ui/core/Control"
-
-], function(Control) {
+sap.ui.define(function() {
     "use strict";
 
     /**
@@ -25,9 +22,6 @@ sap.ui.define([
     singletonTwo.someFunction = () => true;
 
     singletonTwo.someOtherFunction = function() {
-        // Some Comment
-        // Some other Comment
-        Control.escapeSettingsValue("bla");
 
         // Some final Comment
     };
