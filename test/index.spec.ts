@@ -17,14 +17,14 @@ describe("Migration Tests", () => {
         jest.setTimeout(100000);
         let testProject = new UI5MigrationProject(localTestProjectPath);
         
-        await addTypescriptProjectDependencies(localTestProjectPath);
+        // await addTypescriptProjectDependencies(localTestProjectPath);
         await testProject.createProgram();
 
-        ["ClassOne", "ClassTwo"].map(async cName => {
+        ["ClassOne", "ClassTwo", "singleton", "singletonTwo"].map(async cName => {
             let path = localTestProjectPath + "/src/" + cName + ".js",
             ui5Resource = new UI5Resource(path, testProject),
             result = "";
-            
+    
             try {
                 ui5Resource.analyse()
                 result = ui5Resource.getTypescriptContent() || "";
@@ -39,6 +39,9 @@ describe("Migration Tests", () => {
     });
 
     xit("should run task ", async function() {
+        jest.setTimeout(1000000000);
+        // localTestProjectPath = "/Users/d062254/Documents/github.wdf.sap.corp/forme-frontend/cards";
+        localTestProjectPath = "/Users/d062254/Documents/github/openui5/src/sap.ui.core";
         await migrate(["", "", localTestProjectPath]);
         // TODO mock fs in memory
         // expect(fs.writeFile).toHaveBeenCalledTimes(3);

@@ -60,7 +60,7 @@ export class UI5MigrationProject {
                     .catch(_e => {} ); // no file
                 if( parentPackageJson ) {
                     let workspacePackageJson = JSON.parse(parentPackageJson);
-                    if((workspacePackageJson.workspaces?.packages as string[]).includes(path.basename(this.path))) {
+                    if((workspacePackageJson.workspaces?.packages ?? []).includes(path.basename(this.path))) {
                         this.workspacePath = parentDirPath;
                     }
                 }
@@ -70,10 +70,14 @@ export class UI5MigrationProject {
     async analyse() {
         await this.createProgram();
 
-        return Promise.all((this.program?.getRootFileNames() || []).map(async (filePath, index) => {
+        return (this.program?.getRootFileNames() || []).map((filePath, index) => {
             this.ui5Resources[index] = new UI5Resource(filePath, this);
-            this.ui5Resources[index].analyse();
-        }));
+            try {
+                this.ui5Resources[index].analyse();
+            } catch (err) {
+                console.error(err);
+            }
+        });
     }
 
     async addConfigFiles() {
