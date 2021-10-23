@@ -20,7 +20,7 @@ describe("Migration Tests", () => {
         // await addTypescriptProjectDependencies(localTestProjectPath);
         await testProject.createProgram();
 
-        ["ClassOne", "ClassTwo", "singleton", "singletonTwo"].map(async cName => {
+        ["BaseClass", "ClassOne", "ClassTwo", "singleton", "singletonTwo"].map(async cName => {
             let path = localTestProjectPath + "/src/" + cName + ".js",
             ui5Resource = new UI5Resource(path, testProject),
             result = "";
