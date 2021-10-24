@@ -3,7 +3,7 @@ import {TypeNode, NodeArray, SyntaxKind, SourceFile, CallExpression, FunctionExp
     ObjectLiteralExpression, VariableDeclaration, StringLiteral, PropertyAccessExpression,
     Identifier, PropertyAssignment, ExpressionStatement, Expression, BinaryExpression,
     Statement, factory, ModifierFlags, ImportDeclaration, ClassDeclaration, ConstructorDeclaration,
-    ParameterDeclaration, NamedImports, ReturnStatement, MethodDeclaration, Node, NewExpression, FunctionDeclaration, ArrowFunction, Block, VariableStatement, VariableDeclarationList} from 'typescript';
+    ParameterDeclaration, NamedImports, ReturnStatement, MethodDeclaration, Node, NewExpression, FunctionDeclaration, ArrowFunction, Block, VariableStatement, VariableDeclarationList, JSDoc} from 'typescript';
 import jsonata from "jsonata";
 import { ASTService } from './ASTService';
 import { UI5MigrationProject } from './UI5MigrationProject';
@@ -33,7 +33,7 @@ type MethodInfo = MemberInfo & {
 type ClassInfoBase = {
     jsDocs: any,
     className : string,
-    constructorAst?: any,
+    constructorFE?: FunctionExpression | ArrowFunction,
     methods?: MethodInfo[],
     staticMethods?: MethodInfo[]
     staticProperties?: MemberInfo[]
@@ -80,11 +80,10 @@ export class UI5Resource {
             returnStatement = jsonata(`statements[kind=${SyntaxKind.ReturnStatement}]`).evaluate(defineCallBody) as ReturnStatement,
             useStrictStatement = jsonata(`statements[expression.text='use strict']`).evaluate(defineCallBody) as ExpressionStatement,
             mainExportName = (returnStatement?.expression as any)?.text as string,
-            jsDocs = jsonata(`statements[declarationList.declarations[name.text="${mainExportName}"]].jsDoc`).evaluate(defineCallBody) as Node[],
+            jsDocs = jsonata(`statements[declarationList.declarations[name.text="${mainExportName}"]].jsDoc`).evaluate(defineCallBody) as JSDoc[],
             classObjectVar = jsonata(`statements[declarationList.declarations.name.text='${mainExportName}' and declarationList.declarations[0].initializer.kind=${SyntaxKind.ObjectLiteralExpression}]`).evaluate(defineCallBody) as ObjectVar,
-            classFunctionVar = jsonata(`statements[declarationList.declarations.name.text='${mainExportName}' and declarationList.declarations[0].initializer.kind=${SyntaxKind.FunctionExpression}]`).evaluate(defineCallBody) as FunctionVar,
+            exportedFunctionVar: FunctionVar|undefined = jsonata(`statements[declarationList.declarations.name.text='${mainExportName}' and declarationList.declarations[0].initializer.kind=${SyntaxKind.FunctionExpression}]`).evaluate(defineCallBody) as FunctionVar,
             classObject = classObjectVar?.declarationList.declarations[0],
-            classFunction = classFunctionVar?.declarationList.declarations[0]?.initializer,
             extendDeclarations = jsonata("statements[declarationList.declarations[0].initializer.expression.name.text='extend' or expression.expression.name.text='extend']").evaluate(defineCallBody),
             classInfos: (ClassInfo | SingletonInfo)[] = extendDeclarations?.map(this.getUI5ClassInfo.bind(this)) || [],
 
@@ -97,16 +96,18 @@ export class UI5Resource {
             
             otherExpressions = [...defineCallBody?.statements ?? []];
 
-        if (classFunctionVar && classFunction) {
-            classInfos.push({
-                jsDocs: jsDocs,
-                className : mainExportName,
-                methods: [{
-                    name: "init",
-                    body: classFunction,
-                    isStatic: false
-                }]
-            })
+        if (exportedFunctionVar && jsDocs[0].tags?.find(tag => tag.tagName.text == "class")) {
+            let classFunction = exportedFunctionVar?.declarationList.declarations[0]?.initializer
+            if(classFunction) {
+                classInfos.push({
+                    jsDocs: jsDocs,
+                    className : mainExportName,
+                    constructorFE: classFunction
+                })
+            }
+        } else {
+            // TODO export function
+            exportedFunctionVar = undefined;
         }
 
         if(singletonBody) {
@@ -133,11 +134,10 @@ export class UI5Resource {
                 // isSingleton: true;
                 jsDocs: jsDocs,
                 className : mainExportName,
-                // constructorAst?: any,
                 staticMethods: singletonStaticMethods
             });
         }
-        otherExpressions = otherExpressions.filter(s => ![...extendDeclarations || [], useStrictStatement, classObjectVar, classFunctionVar, returnStatement]?.includes(s));
+        otherExpressions = otherExpressions.filter(s => ![...extendDeclarations || [], useStrictStatement, classObjectVar, exportedFunctionVar, returnStatement]?.includes(s));
 
         classInfos?.forEach(classInfo => {
 
@@ -181,6 +181,7 @@ export class UI5Resource {
             classInfo.methods = [...classInfo.methods ?? [], ...methods ?? []];
             classInfo.staticMethods = [...classInfo.staticMethods ?? [], ...staticMethods ?? []];
             classInfo.staticProperties = [...classInfo.staticProperties ?? [], ...staticProperties ?? []];
+            // TODO add support anonymous self-executing functions to private members
         });
         // Opa5.createPageObjects
         // TODO: check whether conversion needed for tests & how to run them afterwards
@@ -245,13 +246,17 @@ export class UI5Resource {
                     [factory.createExpressionWithTypeArguments(factory.createIdentifier(superClassName), /*typeArguments*/ undefined)]
                 )
             ] : [],
-        newMethods = ([... [], ...(classInfo as ClassInfo)?.methods ?? [],  ...classInfo.staticMethods ?? []]).map(({name, body, isStatic}) => {
+        newMethods = ([... [], ...(classInfo as ClassInfo)?.methods ?? [],
+                                ...classInfo.staticMethods ?? [],
+                                ...(classInfo.constructorFE ? [{name: "constructor", body: classInfo.constructorFE, isStatic: false}] : [])
+                            ])
+                                .map(({name, body, isStatic}) => {
             
             let newBody = (body as FunctionExpression).body?.statements ?
                       (body as FunctionExpression).body :
                       factory.createBlock([factory.createReturnStatement((body as ArrowFunction).body as Expression)] ?? []),
-            newParameters = (body.parameters?.length > 0 ? 
-                body.parameters.map(oP => factory.createParameterDeclaration(
+            newParameters = ((body?.parameters?.length ?? 0) > 0 ? 
+                body?.parameters.map(oP => factory.createParameterDeclaration(
                     oP.decorators,
                     oP.modifiers,
                     oP.dotDotDotToken,
@@ -309,7 +314,8 @@ export class UI5Resource {
                 flags = flags | ModifierFlags.Static;
             }
             
-            let newMethod = name == "init" ? 
+            let newMethod = name == "init" && (classInfo as ClassInfo)?.superClassName ?
+                // init is converted to constructor for sub-classes
                 factory.createConstructorDeclaration(
                     undefined,
                     undefined,
