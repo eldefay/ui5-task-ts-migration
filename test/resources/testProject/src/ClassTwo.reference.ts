@@ -1,4 +1,13 @@
 import Control, { $ControlSettings } from "sap/ui/core/Control";
+/*
+ * Creates a new ClassTwo.
+ * @class
+ * @classdesc <strong>Note here</strong>
+ *
+ * @version ${version}
+ * @extends {sap.ui.core.Control}
+ *
+ */
 export class ClassTwo extends Control {
     public static metadata = { properties: {
             "arrayOfStrings": { type: "string[]", defaultValue: [] }

@@ -3,7 +3,7 @@ import {TypeNode, NodeArray, SyntaxKind, SourceFile, CallExpression, FunctionExp
     ObjectLiteralExpression, VariableDeclaration, StringLiteral, PropertyAccessExpression,
     Identifier, PropertyAssignment, ExpressionStatement, Expression, BinaryExpression,
     Statement, factory, ModifierFlags, ImportDeclaration, ClassDeclaration, ConstructorDeclaration,
-    ParameterDeclaration, NamedImports, ReturnStatement, MethodDeclaration, Node, NewExpression, FunctionDeclaration, ArrowFunction, Block, VariableStatement, VariableDeclarationList, JSDoc} from 'typescript';
+    ParameterDeclaration, NamedImports, ReturnStatement, MethodDeclaration, Node, NewExpression, FunctionDeclaration, ArrowFunction, Block, VariableStatement, VariableDeclarationList, JSDoc, addSyntheticLeadingComment} from 'typescript';
 import jsonata from "jsonata";
 import { ASTService } from './ASTService';
 import { UI5MigrationProject } from './UI5MigrationProject';
@@ -31,7 +31,7 @@ type MethodInfo = MemberInfo & {
 };
 
 type ClassInfoBase = {
-    jsDocs: any,
+    jsDoc?: JSDoc,
     className : string,
     constructorFE?: FunctionExpression | ArrowFunction,
     methods?: MethodInfo[],
@@ -80,12 +80,15 @@ export class UI5Resource {
             returnStatement = jsonata(`statements[kind=${SyntaxKind.ReturnStatement}]`).evaluate(defineCallBody) as ReturnStatement,
             useStrictStatement = jsonata(`statements[expression.text='use strict']`).evaluate(defineCallBody) as ExpressionStatement,
             mainExportName = (returnStatement?.expression as any)?.text as string,
-            jsDocs = jsonata(`statements[declarationList.declarations[name.text="${mainExportName}"]].jsDoc`).evaluate(defineCallBody) as JSDoc[],
-            classObjectVar = jsonata(`statements[declarationList.declarations.name.text='${mainExportName}' and declarationList.declarations[0].initializer.kind=${SyntaxKind.ObjectLiteralExpression}]`).evaluate(defineCallBody) as ObjectVar,
+            jsDoc = (jsonata(`statements[declarationList.declarations[name.text="${mainExportName}"]].jsDoc`).evaluate(defineCallBody) ?? [])[0] as JSDoc | undefined,
+            classObjectVar = jsonata(`statements[
+                declarationList.declarations.name.text='${mainExportName}' and  (
+                    declarationList.declarations[0].initializer.kind=${SyntaxKind.NewExpression} or
+                    declarationList.declarations[0].initializer.kind=${SyntaxKind.ObjectLiteralExpression})]`).evaluate(defineCallBody) as ObjectVar,
             exportedFunctionVar: FunctionVar|undefined = jsonata(`statements[declarationList.declarations.name.text='${mainExportName}' and declarationList.declarations[0].initializer.kind=${SyntaxKind.FunctionExpression}]`).evaluate(defineCallBody) as FunctionVar,
             classObject = classObjectVar?.declarationList.declarations[0],
-            extendDeclarations = jsonata("statements[declarationList.declarations[0].initializer.expression.name.text='extend' or expression.expression.name.text='extend']").evaluate(defineCallBody),
-            classInfos: (ClassInfo | SingletonInfo)[] = extendDeclarations?.map(this.getUI5ClassInfo.bind(this)) || [],
+            extendDeclarations = jsonata("[statements[declarationList.declarations[0].initializer.expression.name.text='extend' or expression.expression.name.text='extend']]").evaluate(defineCallBody) ?? [],
+            classInfos: (ClassInfo | SingletonInfo)[] = extendDeclarations.map(this.getUI5ClassInfo.bind(this)) || [],
 
             // singletons
             singletonBody = classObject?.initializer?.kind == SyntaxKind.ObjectLiteralExpression ?
@@ -96,11 +99,11 @@ export class UI5Resource {
             
             otherExpressions = [...defineCallBody?.statements ?? []];
 
-        if (exportedFunctionVar && jsDocs[0].tags?.find(tag => tag.tagName.text == "class")) {
+        if (exportedFunctionVar && jsDoc?.tags?.find(tag => tag.tagName.text == "class")) {
             let classFunction = exportedFunctionVar?.declarationList.declarations[0]?.initializer
             if(classFunction) {
                 classInfos.push({
-                    jsDocs: jsDocs,
+                    jsDoc: jsDoc,
                     className : mainExportName,
                     constructorFE: classFunction
                 })
@@ -111,7 +114,7 @@ export class UI5Resource {
         }
 
         if(singletonBody) {
-            let singletonStaticProperties: [string, Node][] = [],
+            let singletonStaticProperties: MemberInfo[] = [],
             singletonStaticMethods: MethodInfo[] = [];
             
             [...singletonBody.properties ?? []]
@@ -127,14 +130,19 @@ export class UI5Resource {
                         isStatic: true
                     });
                 } else {
-                    singletonStaticProperties.push([name, body]);
+                    singletonStaticProperties.push({
+                        name: name,
+                        body: body as Expression,
+                        isStatic: true
+                    });
                 }
             });
             classInfos.push({
                 // isSingleton: true;
-                jsDocs: jsDocs,
+                jsDoc: jsDoc,
                 className : mainExportName,
-                staticMethods: singletonStaticMethods
+                staticMethods: singletonStaticMethods,
+                staticProperties: singletonStaticProperties
             });
         }
         otherExpressions = otherExpressions.filter(s => ![...extendDeclarations || [], useStrictStatement, classObjectVar, exportedFunctionVar, returnStatement]?.includes(s));
@@ -200,7 +208,7 @@ export class UI5Resource {
     }
 
     getUI5ClassInfo(extendAst: any) : ClassInfo {
-        let jsDocs = extendAst.jsDoc,
+        let jsDoc = extendAst.jsDoc[0],
             classDeclaration = extendAst.declarationList?.declarations[0] as VariableDeclaration,
             extendCall = (classDeclaration?.initializer || extendAst.expression) as CallExpression,
             classNameInSpace = (extendCall.arguments[0] as StringLiteral).text,
@@ -212,7 +220,7 @@ export class UI5Resource {
             ui5ClassSettings = Object.fromEntries(extendSettings?.filter(([_name, exp]) => exp.kind != SyntaxKind.FunctionExpression) || []),
             methods = extendSettings?.filter(([_name, exp]) => exp.kind == SyntaxKind.FunctionExpression) ?? [] as [string, FunctionExpression][];
         return {
-            jsDocs: jsDocs,
+            jsDoc: jsDoc,
             className : className,
             nameSpace : nameSpace,
             superClassName : superClassName,
@@ -350,13 +358,19 @@ export class UI5Resource {
         if( metaDataProperty ) {
             elements.unshift(metaDataProperty);
         }
-        return factory.createClassDeclaration(
+        let classDeclaration = factory.createClassDeclaration(
             undefined,
             [factory.createModifier(SyntaxKind.ExportKeyword)],
             factory.createIdentifier(classInfo.className),
             undefined, // as TypeParameterDeclaration[],
             heritageClauses,
             elements);
+        
+        if (classInfo.jsDoc) {
+            const jsDocString = ASTService.print(classInfo.jsDoc, this.sourceFile).trim().replace(/^\/\*(\*)/, "").replace(/\*\/$/, "");
+            addSyntheticLeadingComment(classDeclaration, SyntaxKind.MultiLineCommentTrivia, jsDocString, /*hasTrailingNewLine*/ true);
+        }
+        return classDeclaration
     }
 
     createImports() {
@@ -387,7 +401,7 @@ export class UI5Resource {
         // this.sourceFile = ASTService.getAST(this.path);
         let ui5DefineCalls = this.getUI5DefineCalls();
         
-        this.info = ui5DefineCalls.map(this.getUI5Definitions).reduce<FileInfo>((acc, info) => ({...acc, ...info}), {} as FileInfo)
+        this.info = ui5DefineCalls.map(this.getUI5Definitions.bind(this)).reduce<FileInfo>((acc, info) => ({...acc, ...info}), {} as FileInfo)
         // this.info = this.getUI5Definitions(ui5DefineCalls);
         // missing imports are gathered in this.getClassDeclaration
         this.classDeclarations = this.info?.classes?.map(classInfo => this.getClassDeclaration(classInfo));
@@ -404,7 +418,7 @@ export class UI5Resource {
                     .concat(this.classDeclarations)
                     .concat(this.info?.otherExpressions || [])
                 || this.sourceFile?.statements),
-                newContent = declarationsBlock.statements.flatMap(s => s).map(s => ASTService.print(s)).join("\n");
+                newContent = declarationsBlock.statements.flatMap(s => s).map(s => ASTService.print(s, this.sourceFile)).join("\n");
             return newContent;
         } catch (e) {
             console.error(e);

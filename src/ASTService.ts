@@ -2,7 +2,9 @@
 import {addSyntheticTrailingComment, createPrinter, createProgram, NewLineKind, SyntaxKind, SourceFile, EmitHint, CallExpression, FunctionExpression, ObjectLiteralExpression, VariableDeclaration, StringLiteral, PropertyAccessExpression, Identifier, PropertyAssignment, ExpressionStatement, Expression, BinaryExpression, HeritageClause, ClassElement, Statement, TypeParameterDeclaration, ScriptTarget, ScriptKind, createSourceFile, ModuleKind, factory, ModifierFlags, Node, ImportDeclaration, ClassDeclaration, ConstructorDeclaration} from 'typescript';
 import jsonata from "jsonata";
 import { UI5Resource } from './UI5Resource';
+
 export class ASTService {
+    static printer = createPrinter({ newLine: NewLineKind.LineFeed });
 
     static getAST(jsFilePath: string, content?: string) : SourceFile {
         return content != null ? createSourceFile(
@@ -16,16 +18,15 @@ export class ASTService {
         }).getSourceFile(jsFilePath) as SourceFile;
     }
 
-    static print(node: Node) {
-    let printer = createPrinter({ newLine: NewLineKind.LineFeed }),
-        resultFile = createSourceFile(
+    static print(node: Node, sourceFile?: SourceFile) {
+        // TODO add comments & seperation lines whist traversing children
+        return this.printer.printNode(EmitHint.Unspecified, node, sourceFile ?? node.getSourceFile() ?? createSourceFile(
             "", //outputFilePath,
             "",
             ScriptTarget.Latest,
             /*setParentNodes*/ false,
             ScriptKind.TS
-        );
-        return printer.printNode(EmitHint.Unspecified, node, resultFile)
+        ));
     }
 
 }

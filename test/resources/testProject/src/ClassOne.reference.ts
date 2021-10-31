@@ -1,5 +1,14 @@
 import Control, { $ControlSettings } from "sap/ui/core/Control";
 import ManagedObject from "sap/ui/base/ManagedObject";
+/*
+ * Creates a new ClassOne.
+ * @class
+ * @classdesc <strong>Note here</strong>
+ *
+ * @version ${version}
+ * @extends {sap.ui.core.Control}
+ *
+ */
 export class ClassOne extends Control {
     public static metadata = { properties: {
             "arrayOfStrings": { type: "string[]", defaultValue: [] }

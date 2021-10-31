@@ -1,8 +1,19 @@
+/*
+ * Creates a new BaseClass.
+ * @class
+ * @classdesc <strong>Note here</strong>
+ *
+ * @version ${version}
+ *
+ */
 export class BaseClass {
-    constructor(...args: any) {
-        this.someMethodOfBaseClass();
-    }
     someMethodOfBaseClass(...args: any) {
         return this;
+    }
+    constructor(...args: any) {
+        // Some Comment
+        // Some other Comment
+        this.someMethodOfBaseClass();
+        // Some final Comment
     }
 }
