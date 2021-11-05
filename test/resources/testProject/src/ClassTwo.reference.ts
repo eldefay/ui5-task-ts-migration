@@ -1,14 +1,15 @@
-import Control, { $ControlSettings } from "sap/ui/core/Control";
+import ClassOne from "./ClassOne.reference";
+import { $ControlSettings } from "sap/ui/core/Control";
 /*
  * Creates a new ClassTwo.
  * @class
  * @classdesc <strong>Note here</strong>
  *
  * @version ${version}
- * @extends {sap.ui.core.Control}
+ * @extends {some.name.space.ClassOne}
  *
  */
-export class ClassTwo extends Control {
+export default class ClassTwo extends ClassOne {
     public static metadata = { properties: {
             "arrayOfStrings": { type: "string[]", defaultValue: [] }
         } };

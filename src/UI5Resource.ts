@@ -1,13 +1,19 @@
 
-import {TypeNode, NodeArray, SyntaxKind, SourceFile, CallExpression, FunctionExpression,
+import ts, {TypeNode, NodeArray, SyntaxKind, SourceFile, CallExpression, FunctionExpression,
     ObjectLiteralExpression, VariableDeclaration, StringLiteral, PropertyAccessExpression,
     Identifier, PropertyAssignment, ExpressionStatement, Expression, BinaryExpression,
     Statement, factory, ModifierFlags, ImportDeclaration, ClassDeclaration, ConstructorDeclaration,
-    ParameterDeclaration, NamedImports, ReturnStatement, MethodDeclaration, Node, NewExpression, FunctionDeclaration, ArrowFunction, Block, VariableStatement, VariableDeclarationList, JSDoc, addSyntheticLeadingComment} from 'typescript';
-import jsonata from "jsonata";
+    ParameterDeclaration, NamedImports, ReturnStatement, MethodDeclaration, Node, NewExpression, FunctionDeclaration, ArrowFunction, Block, VariableStatement, VariableDeclarationList, JSDoc, addSyntheticLeadingComment, ModuleDeclaration} from 'typescript';
+import jsonata from 'jsonata';
 import { ASTService } from './ASTService';
 import { UI5MigrationProject } from './UI5MigrationProject';
+import { resolve } from 'path';
 
+type ImportInfo = {
+    path: string;
+    name: string;
+    isDefaultImport?: Boolean
+}
 
 type TypedVar<T> = VariableStatement & {
     declarationList: VariableDeclarationList & {
@@ -47,7 +53,7 @@ type SingletonInfo = ClassInfoBase & {
 };
 
 type FileInfo = {
-    imports: { [k: string]: string[] };
+    imports: { [k: string]: ImportInfo[] };
     classes: (ClassInfo | SingletonInfo)[];
     otherExpressions: Statement[];
 }
@@ -58,10 +64,7 @@ export class UI5Resource {
     sourceFile?: SourceFile;
     info?: FileInfo;
     classDeclarations: ClassDeclaration[] = [];
-    missingImports: {
-        path: string;
-        name: string;
-    }[] = [];
+    missingImports: ImportInfo[] = [];
     constructor(public path: string, public project: UI5MigrationProject) {
         
     }
@@ -199,7 +202,11 @@ export class UI5Resource {
             imports: Object.fromEntries(
                 (jsonata("$zip([arguments[0].[elements.text]], [arguments[1].parameters.name.text])")
                 .evaluate(ui5DefineAst) as [[string,string]])
-                .map(x => ([x[0],[x[1]]]) )
+                .map(x => ([x[0],[{
+                    name: x[1],
+                    path: x[0],
+                    isDefaultImport: true
+                }]]) )
             ),
             classes: classInfos,
             otherExpressions: otherExpressions,
@@ -289,13 +296,15 @@ export class UI5Resource {
                     and expression.expression.expression.expression.name.text='prototype'
                     and expression.expression.expression.expression.expression.text='${ui5ClassInfo.superClassName}']`),
                 superCall = superCallSelector.evaluate(body),
-                path = Object.entries(this.info!.imports).find(([_path, names]) => names.includes(ui5ClassInfo.superClassName))?.[0] ?? "",
+                path = Object.entries(this.info!.imports)
+                    .find(([_path, imports]) => imports
+                        .find(iImport => iImport.name.includes(ui5ClassInfo.superClassName)))?.[0] ?? "",
                 pathParts: string[] = path.split("/") || [],
                 superNameSpace = path?.split("/").splice(0, pathParts.length - 1).join("."),
-                cInfo = superNameSpace.substr(0, 3) == "sap" ? this.getSuperMethodInfo(path, path.split("/").pop() || path, name) : undefined;
+                cInfo = this.getSuperMethodInfo(path, path.split("/").pop() || path, name);
 
                 if (superCall) {
-                    if( cInfo ) {
+                    if( cInfo && cInfo.missingImports?.length > 0 ) {
                         this.missingImports = [...this.missingImports, ...cInfo.missingImports]
                     }
                     let newSuperCall = factory.createExpressionStatement(
@@ -360,7 +369,8 @@ export class UI5Resource {
         }
         let classDeclaration = factory.createClassDeclaration(
             undefined,
-            [factory.createModifier(SyntaxKind.ExportKeyword)],
+            [   factory.createModifier(SyntaxKind.ExportKeyword),
+                factory.createModifier(SyntaxKind.DefaultKeyword)],
             factory.createIdentifier(classInfo.className),
             undefined, // as TypeParameterDeclaration[],
             heritageClauses,
@@ -376,23 +386,27 @@ export class UI5Resource {
     createImports() {
 
         this.missingImports.flatMap(r => r).forEach((missingImport) => {
-            let importsForPath = this.info!.imports[missingImport.path];
-            this.info!.imports[missingImport.path] = [...new Set([...(importsForPath || []), missingImport.name])];
+            let importsForPath = this.info!.imports[missingImport.path] ?? [];
+            this.info!.imports[missingImport.path] = [...new Set([...importsForPath, missingImport])];
         })
         
-        let importDeclarations = Object.entries(this.info?.imports || {}).map(([path, names]) => factory.createImportDeclaration(
-            undefined,
-            undefined,
-            factory.createImportClause(false, 
-                // path.substr(0, 1) != "." ? undefined : factory.createIdentifier(names[0]), // Local ts is generated & has 1 export
-                factory.createIdentifier(names[0]), // Local ts is generated & has 1 export
-                this.info!.imports[path]?.length < 2 ? undefined : factory.createNamedImports(
-                    this.info!.imports[path].filter((_,i) => i > 0).map(name => 
-                        factory.createImportSpecifier(undefined, factory.createIdentifier(name)))
-                )
-            ),
-            factory.createStringLiteral(path))
-        );
+        let importDeclarations = Object.entries(this.info?.imports || {})
+            .map(([path, importInfos]) => {
+                let defaultImport = importInfos.find(iImportInfo => path.split("/").pop() == iImportInfo.name || iImportInfo.isDefaultImport)?.name,
+                    namedImports = this.info!.imports[path].filter(iImportInfo => iImportInfo.name !=  defaultImport).map(iImportInfo => iImportInfo.name)
+
+                return factory.createImportDeclaration(
+                    undefined,
+                    undefined,
+                    factory.createImportClause(false, 
+                        defaultImport ? factory.createIdentifier(defaultImport) : undefined,
+                        namedImports?.length > 0 ? factory.createNamedImports(
+                            namedImports.map(namedImport => 
+                                factory.createImportSpecifier(undefined, factory.createIdentifier(namedImport)))
+                        ) : undefined
+                    ),
+                    factory.createStringLiteral(path))
+                });
         return importDeclarations;
     }
 
@@ -426,7 +440,7 @@ export class UI5Resource {
         return undefined;
     }
 
-    static getTypeLibAst(projectPath: string, importPath: string) {
+    static getTypeLibAst(projectPath: string, importPath: string, sourcePath: string) {
         if( importPath.substr(0, 3) == "sap" ) {
             if( importPath == "sap/ui/thirdparty/jquery" ) {
                 importPath = "jquery";
@@ -440,7 +454,10 @@ export class UI5Resource {
 
             return parentTypeLibAst
         } else if( importPath.substr(0, 1) == "." ) {
-            // TODO Enable traversing local classes
+            let absoluteImportPath = resolve(sourcePath, "../", importPath) + ".ts";
+            return ASTService.getAST(absoluteImportPath);
+        } else {
+            console.warn(`unhandled import path ${importPath}`);
         }
         return undefined;
     }
@@ -448,24 +465,36 @@ export class UI5Resource {
     getImportInfo(importPath: string, importID: string) : {
         importPath: string,
         classAst: ClassDeclaration
+        isDefaultImport?: Boolean
     } {
         // TODO: use program.getTypeChecker().getSymbolAtLocation instead of own impl.
-        let librarySourceFile = UI5Resource.getTypeLibAst(this.project.workspacePath||this.project.path, importPath),
-        classAst = jsonata(`body.statements[name.text = '${importID}']`)
-            .evaluate(librarySourceFile) as ClassDeclaration;
+        let librarySourceFile = UI5Resource.getTypeLibAst(this.project.workspacePath ?? this.project.path, importPath, this.path),
+        classAst = (jsonata(`body.statements[name.text = '${importID}']`)
+                        .evaluate(librarySourceFile) ??
+                    jsonata(`statements[name.text='${importID}' or name.text='${importID.split(".")[0]}']`)
+                        .evaluate(librarySourceFile)) as ClassDeclaration;
 
         if(!classAst) {
             // console.log(`class "${className}" not found in "${importPath}", will search in imports`);
-            let imports = jsonata(`[body.statements[kind=${SyntaxKind.ImportDeclaration}]]`).evaluate(librarySourceFile) as ImportDeclaration[],
-                superImport = imports.find(id =>  id.importClause?.name?.text == importID ||
-                    (id.importClause?.namedBindings as NamedImports)?.elements.find(nbe => nbe.name.text == importID));
+            let imports = (jsonata(`[body.statements[kind=${SyntaxKind.ImportDeclaration}]]`).evaluate(librarySourceFile) as [])
+                            .concat(jsonata(`[statements[kind=${SyntaxKind.ImportDeclaration}]]`).evaluate(librarySourceFile)) as ImportDeclaration[],
+                superImport = imports.find(id => id.importClause?.name?.text == importID),
+                isDefaultImport = true;
+            
+            if (superImport == null) {
+                superImport = imports.find(id => 
+                    (id.importClause?.namedBindings as NamedImports)?.elements
+                        .find(nbe => nbe.name.text == importID));
+
+                isDefaultImport = false;
+            }
                 
             let externalImportPath = (superImport?.moduleSpecifier as any)?.text;
-                if(externalImportPath) {
-                    return this.getImportInfo(externalImportPath, importID);
-                } else {
-                    console.warn(`cant find import reference for Type ${importID}  in ${importPath}`)
-                }
+            if(externalImportPath) {
+                return {...this.getImportInfo(externalImportPath, importID), ...{isDefaultImport: isDefaultImport}};
+            } else {
+                console.warn(`cant find import reference for Type ${importID}  in ${importPath}`)
+            }
         };
         
         return {
@@ -475,17 +504,18 @@ export class UI5Resource {
     }
 
     getSuperMethodInfo(importPath: string, className: string, methodName = "init") : {
-        missingImports: {
-            path: string;
-            name: string;
-        }[],
+        missingImports: ImportInfo[],
         parameters: NodeArray<ParameterDeclaration>,
-        type: TypeNode | undefined
+        type?: TypeNode
     } | undefined {
+        if (importPath.substr(0, 3) == "sap" || importPath.substr(0, 1) == ".") {
+            console.log(importPath);
+        }
         let isConstructor = methodName == "init",
             {
                 importPath: missingImportPath,
-                classAst: classAst
+                classAst: classAst,
+                isDefaultImport: isDefaultImport
             } = this.getImportInfo(importPath, className);
 
         let superMethodAst      =  isConstructor ? undefined : jsonata(`[members[name.text='${methodName}']]`).evaluate(classAst)[0],
@@ -500,10 +530,8 @@ export class UI5Resource {
         let simpleConstructor = superConstructors?.sort((a, b) => a.parameters.length - b.parameters.length)[0],
             parameterTypeNames = jsonata(`[parameters.type.typeName.text]`).evaluate(superMethodAst || simpleConstructor) as string[],
             missingImports = parameterTypeNames
-                // TODO filter for types in other name spaces 
-                .filter(name => this.getImportInfo(importPath, name))
-                .map(name => ({path: missingImportPath, name: name})); // TODO: import path is wrong here, it should be mapped or extracted,it's only true for
-
+                .map(name => ({name: name, importInfo: this.getImportInfo(importPath, name)}))
+                .map(typeInfo => ({name: typeInfo.name, path: typeInfo?.importInfo.importPath ?? missingImportPath, isDefaultImport: typeInfo?.importInfo.isDefaultImport}));
         return {
             missingImports: missingImports,
             parameters: (superMethodAst as MethodDeclaration || simpleConstructor)?.parameters,

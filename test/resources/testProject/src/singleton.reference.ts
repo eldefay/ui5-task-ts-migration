@@ -7,7 +7,7 @@ import Control from "sap/ui/core/Control";
  * @version ${version}
  *
  */
-export class singleton {
+export default class singleton {
     static someData = {
         foo: "bar"
     };

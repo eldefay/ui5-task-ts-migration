@@ -6,7 +6,7 @@
  * @version ${version}
  *
  */
-export class BaseClass {
+export default class BaseClass {
     someMethodOfBaseClass(...args: any) {
         return this;
     }

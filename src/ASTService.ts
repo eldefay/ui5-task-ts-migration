@@ -19,7 +19,6 @@ export class ASTService {
     }
 
     static print(node: Node, sourceFile?: SourceFile) {
-        // TODO add comments & seperation lines whist traversing children
         return this.printer.printNode(EmitHint.Unspecified, node, sourceFile ?? node.getSourceFile() ?? createSourceFile(
             "", //outputFilePath,
             "",

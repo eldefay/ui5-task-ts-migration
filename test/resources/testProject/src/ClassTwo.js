@@ -1,8 +1,8 @@
 
 sap.ui.define([
-    "sap/ui/core/Control"
+    "./ClassOne.reference"
 
-], function(Control) {
+], function(ClassOne) {
     "use strict";
 
     /**
@@ -15,22 +15,22 @@ sap.ui.define([
      *
      * @author Samer Aldefai
      * @version ${version}
-     * @extends sap.ui.core.Control
+     * @extends some.name.space.ClassOne
      * @public
      */
 
-    return Control.extend("some.name.space.ClassTwo", {
+    return ClassOne.extend("some.name.space.ClassTwo", {
         metadata: {
             properties: {
                 "arrayOfStrings": {type: "string[]", defaultValue: []}
             }
         },
-        renderer: Control.getMetadata().getRenderer(),
+        renderer: ClassOne.getMetadata().getRenderer(),
 
         init: function() {
             // Some Comment
             // Some other Comment
-            Control.prototype.init.apply(this, arguments);
+            ClassOne.prototype.init.apply(this, arguments);
 
             // Some final Comment
         },

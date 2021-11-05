@@ -6,7 +6,7 @@
  * @version ${version}
  *
  */
-export class singletonTwo {
+export default class singletonTwo {
     static someData = {
         foo: "bar"
     };

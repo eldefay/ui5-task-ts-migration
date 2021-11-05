@@ -9,7 +9,7 @@ import ManagedObject from "sap/ui/base/ManagedObject";
  * @extends {sap.ui.core.Control}
  *
  */
-export class ClassOne extends Control {
+export default class ClassOne extends Control {
     public static metadata = { properties: {
             "arrayOfStrings": { type: "string[]", defaultValue: [] }
         } };
